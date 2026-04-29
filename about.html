@@ -55,7 +55,7 @@
   <button id="ok-btn">OK</button>
 
   <script>
-    const { ipcRenderer, shell } = require("electron");
+    const { ipcRenderer } = require("electron");
 
     document.getElementById("electron-version").textContent = process.versions.electron;
 
@@ -69,12 +69,12 @@
 
     document.getElementById("website").addEventListener("click", e => {
       e.preventDefault();
-      shell.openExternal("https://glowingcat.com/OmniLLM.html");
+      ipcRenderer.invoke("open-external", "https://glowingcat.com/OmniLLM.html");
     });
 
     document.getElementById("issues").addEventListener("click", e => {
       e.preventDefault();
-      shell.openExternal("https://github.com/richlesh/OmniLLM/issues");
+      ipcRenderer.invoke("open-external", "https://github.com/richlesh/OmniLLM/issues");
     });
 
     document.getElementById("ok-btn").addEventListener("click", () => {

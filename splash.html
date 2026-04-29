@@ -52,14 +52,14 @@
   </p>
 
   <script>
-    const { ipcRenderer, shell } = require("electron");
+    const { ipcRenderer } = require("electron");
 
     ipcRenderer.on("icon-path", (_e, p) => document.getElementById("icon").src = p);
     ipcRenderer.on("app-version", (_e, v) => document.getElementById("app-version").textContent = v);
 
     document.getElementById("donate-link").addEventListener("click", e => {
       e.preventDefault();
-      shell.openExternal("https://glowingcat.com/OmniLLM.html");
+      ipcRenderer.invoke("open-external", "https://glowingcat.com/OmniLLM.html");
     });
 
     // close on click anywhere except the link, or after 20 seconds

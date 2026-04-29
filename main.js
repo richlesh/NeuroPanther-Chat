@@ -1,12 +1,27 @@
-const { app, BrowserWindow, ipcMain, Menu, nativeImage, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, Menu, nativeImage, dialog, shell } = require("electron");
 const OpenAI = require("openai");
 const Anthropic = require("@anthropic-ai/sdk");
 const path = require("path");
 const fs = require("fs");
 const https = require("https");
+const { spawn } = require("child_process");
 const nodeCrypto = require("crypto");
 const { load, save, VENDORS } = require("./settings");
 const LICENSE_SALT = "GlowingCat-OmniLLM-2026";
+
+function openExternal(url) {
+  if (process.platform === "linux") {
+    const child = spawn("xdg-open", [url], { detached: true, stdio: "ignore" });
+    child.unref();
+    // After a short delay, try to raise the browser window via wmctrl if available
+    setTimeout(() => {
+      const wm = spawn("wmctrl", ["-a", "firefox"], { detached: true, stdio: "ignore" });
+      wm.unref();
+    }, 500);
+  } else {
+    shell.openExternal(url);
+  }
+}
 
 function expectedLicenseKey(userName) {
   const hmac = nodeCrypto.createHmac("sha256", LICENSE_SALT);
@@ -374,6 +389,8 @@ ipcMain.handle("settings-save", (_e, newSettings) => {
 });
 
 ipcMain.handle("settings-cancel", () => settingsWin?.close());
+
+ipcMain.handle("open-external", (_e, url) => openExternal(url));
 
 ipcMain.handle("chat", async (_event, { messages, vendor: vendorOverride, model: modelOverride }) => {
   const settings = load();

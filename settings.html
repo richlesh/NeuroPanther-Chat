@@ -67,7 +67,6 @@
   <script>
     const { ipcRenderer } = require("electron");
 
-    const { shell } = require("electron");
     const vendorSel = document.getElementById("vendor");
     const modelSel  = document.getElementById("model");
     const apiKeyIn  = document.getElementById("apiKey");
@@ -129,7 +128,7 @@
 
     apiKeyLink.addEventListener("click", e => {
       e.preventDefault();
-      shell.openExternal(apiKeyLink.href);
+      ipcRenderer.invoke("open-external", apiKeyLink.href);
     });
 
     document.getElementById("save-btn").addEventListener("click", () => {

@@ -73,12 +73,12 @@
   </div>
 
   <script>
-    const { ipcRenderer, shell, crypto } = require("electron");
+    const { ipcRenderer, crypto } = require("electron");
     const nodeCrypto = require("crypto");
 
     document.getElementById("donate-link").addEventListener("click", e => {
       e.preventDefault();
-      shell.openExternal("https://glowingcat.com/OmniLLM.html");
+      ipcRenderer.invoke("open-external", "https://glowingcat.com/OmniLLM.html");
     });
 
     const nameInput    = document.getElementById("name-input");
