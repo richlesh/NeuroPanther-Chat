@@ -1061,6 +1061,10 @@
       createTab(state.title, state);
     });
 
+    ipcRenderer.on("open-chat-tab", (_event, data) => {
+      createTab(data.title || "Chat", data);
+    });
+
     // ── .chat file drag-and-drop onto window ───────────────────────────────────
     document.addEventListener("dragover", e => {
       if ([...e.dataTransfer.items].some(i => i.kind === "file")) e.preventDefault();

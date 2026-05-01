@@ -58,19 +58,19 @@ function loadChatFile(filePath) {
 }
 
 // macOS: file dropped onto app icon
+let pendingOpenFile = null;
 app.on("open-file", (e, filePath) => {
   e.preventDefault();
   if (!filePath.endsWith(".chat")) return;
   const data = loadChatFile(filePath);
   if (!data) return;
-  if (app.isReady()) {
-    const win = createWindow();
-    pendingLoadData.set(win.id, data);
+  if (app.isReady() && mainWin) {
+    // App already open — load into existing window as a new tab
+    mainWin.focus();
+    mainWin.webContents.send("open-chat-tab", data);
   } else {
-    app.once("ready", () => {
-      const win = createWindow();
-      pendingLoadData.set(win.id, data);
-    });
+    // App not yet ready — store and pick up after window loads
+    pendingOpenFile = data;
   }
 });
 
@@ -403,7 +403,9 @@ ipcMain.handle("get-vendors-and-settings", (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   const pending = win ? pendingLoadData.get(win.id) : null;
   if (pending) pendingLoadData.delete(win.id);
-  return { vendors: VENDORS, settings: load(), pendingLoad: pending || null };
+  const openFile = pendingOpenFile;
+  pendingOpenFile = null;
+  return { vendors: VENDORS, settings: load(), pendingLoad: pending || openFile || null };
 });
 
 
