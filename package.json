@@ -32,10 +32,24 @@
       "category": "public.app-category.productivity",
       "target": "dmg",
       "identity": "RICHARD A LESH (MMZ3Y97NTP)",
-      "notarize": true
+      "notarize": true,
+      "fileAssociations": [
+        {
+          "ext": "chat",
+          "name": "NeuroPanther Chat",
+          "role": "Editor"
+        }
+      ]
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "fileAssociations": [
+        {
+          "ext": "chat",
+          "name": "NeuroPanther Chat",
+          "role": "Editor"
+        }
+      ]
     },
     "linux": {
       "category": "Network",

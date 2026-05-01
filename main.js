@@ -49,6 +49,31 @@ app.setAboutPanelOptions({
 let mainWin, settingsWin;
 const pendingLoadData = new Map();
 
+function loadChatFile(filePath) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    const fileName = path.basename(filePath, ".chat");
+    return { ...raw, chatLog: raw.chatLog ?? raw.messages ?? [], title: fileName };
+  } catch { return null; }
+}
+
+// macOS: file dropped onto app icon
+app.on("open-file", (e, filePath) => {
+  e.preventDefault();
+  if (!filePath.endsWith(".chat")) return;
+  const data = loadChatFile(filePath);
+  if (!data) return;
+  if (app.isReady()) {
+    const win = createWindow();
+    pendingLoadData.set(win.id, data);
+  } else {
+    app.once("ready", () => {
+      const win = createWindow();
+      pendingLoadData.set(win.id, data);
+    });
+  }
+});
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1000,
@@ -129,12 +154,12 @@ function buildMenu() {
           click: async () => {
             const { filePaths } = await dialog.showOpenDialog(mainWin, {
               title: "Load Chat",
-              filters: [{ name: "Chat Files", extensions: ["json"] }],
+              filters: [{ name: "Chat Files", extensions: ["chat"] }],
               properties: ["openFile"]
             });
             if (!filePaths?.length) return;
             const raw = JSON.parse(fs.readFileSync(filePaths[0], "utf8"));
-            const fileName = path.basename(filePaths[0], ".json");
+            const fileName = path.basename(filePaths[0], ".chat");
             const data = { ...raw, chatLog: raw.chatLog ?? raw.messages ?? [], title: fileName };
             const win = createWindow();
             pendingLoadData.set(win.id, data);
@@ -333,8 +358,8 @@ ipcMain.handle("save-chat-dialog", async (_event, data) => {
   const safeName = (data.title || "chat").replace(/[^a-z0-9\-_ ]/gi, "_");
   const { filePath } = await dialog.showSaveDialog(win, {
     title: "Save Chat",
-    defaultPath: path.join(require("os").homedir(), "Documents", `${safeName}.json`),
-    filters: [{ name: "Chat Files", extensions: ["json"] }]
+    defaultPath: path.join(require("os").homedir(), "Documents", `${safeName}.chat`),
+    filters: [{ name: "Chat Files", extensions: ["chat"] }]
   });
   if (!filePath) return false;
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
@@ -391,6 +416,11 @@ ipcMain.handle("settings-save", (_e, newSettings) => {
 ipcMain.handle("settings-cancel", () => settingsWin?.close());
 
 ipcMain.handle("open-external", (_e, url) => openExternal(url));
+
+ipcMain.handle("drop-chat-file", (_e, filePath) => {
+  if (!filePath.endsWith(".chat")) return null;
+  return loadChatFile(filePath);
+});
 
 ipcMain.handle("chat", async (_event, { messages, vendor: vendorOverride, model: modelOverride }) => {
   const settings = load();

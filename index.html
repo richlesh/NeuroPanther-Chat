@@ -325,15 +325,15 @@
         <polyline points="21 15 16 10 5 21"/>
       </svg>
     </button>
+    <button class="icon-btn" id="imagine-btn" title="Generate Image">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+      </svg>
+    </button>
     <button class="icon-btn" id="translate-btn" title="Translate">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M5 8l6 6"/><path d="M4 14l6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/>
         <path d="M22 22l-5-10-5 10"/><path d="M14 18h6"/>
-      </svg>
-    </button>
-    <button class="icon-btn" id="imagine-btn" title="Generate Image">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
       </svg>
     </button>
     <textarea id="prompt" rows="1" placeholder="Message…"></textarea>
@@ -420,7 +420,9 @@
       const tab = {
         id,
         title: title,
-        history: restore ? restore.history : [],
+        history: restore ? restore.history || restore.messages
+            .filter(m => m.role !== "system" && m.content)
+            .map(m => ({ role: m.role, content: m.content })) : [],
         chatLog: restore ? restore.chatLog : [],
         saved: restore ? true : false,
         imagineMode: false,
@@ -995,7 +997,7 @@
         }
         savedMessages.push(msg);
       }
-      const ok = await ipcRenderer.invoke("save-chat-dialog", { history: tab.history, messages: savedMessages, title: tab.title });
+      const ok = await ipcRenderer.invoke("save-chat-dialog", { messages: savedMessages, title: tab.title });
       if (ok) markSaved(id);
       return ok;
     }
@@ -1057,6 +1059,26 @@
     // ── Drag-and-drop IPC (receive tab from another window) ───────────────────
     ipcRenderer.on("receive-tab", (_event, state) => {
       createTab(state.title, state);
+    });
+
+    // ── .chat file drag-and-drop onto window ───────────────────────────────────
+    document.addEventListener("dragover", e => {
+      if ([...e.dataTransfer.items].some(i => i.kind === "file")) e.preventDefault();
+    });
+    document.addEventListener("drop", async e => {
+      const file = [...e.dataTransfer.files].find(f => f.name.endsWith(".chat"));
+      if (!file) return;
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        const text = await file.text();
+        const raw = JSON.parse(text);
+        const title = file.name.replace(/\.chat$/, "");
+        const data = { ...raw, chatLog: raw.chatLog ?? raw.messages ?? [], title };
+        createTab(data.title || "Chat", data);
+      } catch (err) {
+        console.error("Failed to load .chat file:", err);
+      }
     });
 
     ipcRenderer.on("remove-tab-after-drag", (_event, tabId) => {
