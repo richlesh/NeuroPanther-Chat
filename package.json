@@ -37,7 +37,8 @@
         {
           "ext": "chat",
           "name": "NeuroPanther Chat",
-          "role": "Editor"
+          "role": "Editor",
+          "icon": "chatdoc_icon.icns"
         }
       ]
     },
@@ -47,7 +48,8 @@
         {
           "ext": "chat",
           "name": "NeuroPanther Chat",
-          "role": "Editor"
+          "role": "Editor",
+          "icon": "chatdoc_icon.ico"
         }
       ]
     },
