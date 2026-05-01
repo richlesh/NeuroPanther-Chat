@@ -514,6 +514,7 @@
         chatLog: restore ? restore.chatLog : [],
         saved: restore ? true : false,
         imagineMode: false,
+        lastGeneratedImageBase64: null,
         translateMode: defaultToLang !== "English",
         toLang: defaultToLang,
         agentMode: false,
@@ -579,8 +580,8 @@
       tabBar.insertBefore(el, newTabBtn);
 
       if (restore) {
-        // rebuild chat HTML from chatLog into the tab's container
-        container.innerHTML = buildChatHtml(restore.chatLog);
+        // rebuild chat DOM directly (avoid innerHTML truncating large base64 image src)
+        buildChatDom(restore.chatLog, container);
       }
 
       switchTab(id);
@@ -717,6 +718,43 @@
       return { title: tab.title, history: tab.history, chatLog: tab.chatLog, vendor, model };
     }
 
+    function buildChatDom(chatLog, container) {
+      for (const msg of chatLog) {
+        if (msg.role === "user") {
+          const div = document.createElement("div");
+          div.className = "msg user";
+          if (msg.images?.length) {
+            for (const src of msg.images) {
+              const img = document.createElement("img");
+              img.src = src; img.style.maxWidth = "200px";
+              div.appendChild(img);
+            }
+          }
+          if (msg.content) {
+            const p = document.createElement("div");
+            p.textContent = msg.content;
+            if (msg.images?.length) p.style.marginTop = "6px";
+            div.appendChild(p);
+          }
+          container.appendChild(div);
+        } else {
+          const div = document.createElement("div");
+          div.className = "msg assistant";
+          if (msg.images?.length && (msg.generatedImage || !msg.content)) {
+            const img = document.createElement("img");
+            img.src = msg.images[0]; img.style.maxWidth = "200px";
+            div.appendChild(img);
+            div.appendChild(makeImageDownloadAction(msg.images[0], "image"));
+          } else {
+            div.innerHTML = marked.parse(msg.content || "");
+            addCodeCopyButtons(div);
+            div.appendChild(makeActions(msg.content || ""));
+          }
+          container.appendChild(div);
+        }
+      }
+    }
+
     function buildChatHtml(chatLog) {
       // Rebuild chat HTML from a saved chatLog (used when restoring a dragged-in tab)
       const tmp = document.createElement("div");
@@ -848,7 +886,11 @@
     modelSel.addEventListener("change", () => { rememberedModel[vendorSel.value] = modelSel.value; });
 
     // ── Image attach ───────────────────────────────────────────────────────────
-    attachBtn.addEventListener("click", () => { clearModes(activeTab()); fileInput.click(); });
+    attachBtn.addEventListener("click", () => {
+      const tab = activeTab();
+      if (!tab?.imagineMode) clearModes(tab);
+      fileInput.click();
+    });
 
     fileInput.addEventListener("change", () => {
       const file = fileInput.files[0];
@@ -914,6 +956,7 @@
     function clearModes(tab) {
       tab.imagineMode = false;
       tab.agentMode = false;
+      tab.lastGeneratedImageBase64 = null;
       imagineBtn.classList.remove("active");
       agentBtn.classList.remove("active");
       agentRow.classList.remove("visible");
@@ -994,12 +1037,26 @@
       const model  = modelSel.value;
 
       if (tab.imagineMode) {
-        addMessage("user", `🎨 ${text}`, tabId);
-        tab.chatLog.push({ role: "user", content: `🎨 ${text}`, images: [] });
+        const userDiv = document.createElement("div");
+        userDiv.className = "msg user";
+        if (tab.attachedImage) {
+          const imgEl = document.createElement("img");
+          imgEl.src = tab.attachedImage.dataUrl; imgEl.style.maxWidth = "200px";
+          userDiv.appendChild(imgEl);
+        }
+        const textEl = document.createElement("div");
+        textEl.textContent = `🎨 ${text}`;
+        if (tab.attachedImage) textEl.style.marginTop = "6px";
+        userDiv.appendChild(textEl);
+        tabs[tabId].container.appendChild(userDiv);
+        if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight;
+        tab.chatLog.push({ role: "user", content: `🎨 ${text}`, images: tab.attachedImage ? [tab.attachedImage.dataUrl] : [] });
         markUnsaved(tabId);
         const thinking = addMessage("assistant", "…", tabId);
         try {
-          const url = await ipcRenderer.invoke("generate-image", { promptText: text, vendor });
+          const sourceImageBase64 = tab.attachedImage?.base64 || tab.lastGeneratedImageBase64 || null;
+          if (tab.attachedImage) clearImage();
+          const url = await ipcRenderer.invoke("generate-image", { promptText: text, vendor, sourceImageBase64 });
           thinking.innerHTML = "";
           thinking.classList.remove("thinking-indicator");
           const img = document.createElement("img");
@@ -1007,6 +1064,8 @@
           thinking.appendChild(img);
           thinking.appendChild(makeImageDownloadAction(url, text));
           tab.chatLog.push({ role: "assistant", content: "", generatedImageUrl: url });
+          // store base64 for potential edit on next prompt
+          tab.lastGeneratedImageBase64 = url.split(",")[1];
         } catch (err) {
           thinking.classList.remove("thinking-indicator");
           thinking.className = "msg error";

@@ -734,12 +734,13 @@ ipcMain.handle("chat-with-image", async (_event, { tempPath, mediaType, text, ve
   return res.choices[0].message.content;
 });
 
-ipcMain.handle("generate-image", async (_event, { promptText, vendor }) => {
+ipcMain.handle("generate-image", async (_event, { promptText, vendor, sourceImageBase64 }) => {
   const { apiKeys } = load();
   if (!apiKeys?.[vendor]) throw new Error("You need to set the API key in Settings before this LLM vendor can be used.");
   const vendorCfg = VENDORS[vendor];
 
   if (vendor === "google") {
+    // Google Imagen is text-to-image only — image editing not supported
     const { GoogleGenAI } = require("@google/genai");
     const ai = new GoogleGenAI({ apiKey: apiKeys.google });
     const res = await ai.models.generateImages({
@@ -751,14 +752,39 @@ ipcMain.handle("generate-image", async (_event, { promptText, vendor }) => {
     return `data:image/png;base64,${b64}`;
   }
 
-  // OpenAI DALL-E - fetch and convert to base64 immediately so URL doesn't expire
   const client = new OpenAI({ apiKey: apiKeys[vendor] });
+
+  // If a source image is provided, use the edit endpoint
+  if (sourceImageBase64) {
+    const os = require("os");
+    const tmpPath = path.join(os.tmpdir(), `neuropanther-edit-${Date.now()}.png`);
+    fs.writeFileSync(tmpPath, Buffer.from(sourceImageBase64, "base64"));
+    try {
+      const { toFile } = require("openai");
+      const res = await client.images.edit({
+        model: "gpt-image-1",
+        image: await toFile(fs.createReadStream(tmpPath), "image.png", { type: "image/png" }),
+        prompt: promptText,
+        n: 1,
+        size: vendorCfg.imageSize
+      });
+      const b64 = res.data[0].b64_json;
+      if (b64) return `data:image/png;base64,${b64}`;
+      const imgRes = await fetch(res.data[0].url);
+      return `data:image/png;base64,${Buffer.from(await imgRes.arrayBuffer()).toString("base64")}`;
+    } finally {
+      fs.unlinkSync(tmpPath);
+    }
+  }
+
+  // Generate new image
   const res = await client.images.generate({ model: vendorCfg.imageModel, prompt: promptText, n: 1, size: vendorCfg.imageSize });
+  const b64 = res.data[0].b64_json;
+  if (b64) return `data:image/png;base64,${b64}`;
   const imageUrl = res.data[0].url;
   const response = await fetch(imageUrl);
   const arrayBuffer = await response.arrayBuffer();
-  const b64 = Buffer.from(arrayBuffer).toString("base64");
-  return `data:image/png;base64,${b64}`;
+  return `data:image/png;base64,${Buffer.from(arrayBuffer).toString("base64")}`;
 });
 
 ipcMain.handle("download-image", async (_event, { url, promptText }) => {
@@ -826,7 +852,7 @@ ipcMain.handle("image-context-menu", async (_event, src) => {
       }
     }
   ]);
-  menu.popup({ window: mainWin });
+  menu.popup({ window: BrowserWindow.getFocusedWindow() || mainWin });
 });
 
 // ── Tab drag-and-drop between windows ─────────────────────────────────────────

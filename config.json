@@ -5,7 +5,7 @@
       "models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
       "apiKeyUrl": "https://platform.openai.com/api-keys",
       "imageGeneration": true,
-      "imageModel": "dall-e-3",
+      "imageModel": "gpt-image-1",
       "imageSize": "1024x1024"
     },
     "anthropic": {
