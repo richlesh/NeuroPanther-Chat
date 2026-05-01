@@ -121,6 +121,27 @@
     }
     #image-preview-wrap button:hover { color: #ff453a; }
 
+    #translate-row {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 16px;
+      background: #252525;
+      border-top: 1px solid #333;
+    }
+    #translate-row.visible { display: flex; }
+    #translate-row label { font-size: 12px; color: #aaa; flex-shrink: 0; }
+    #translate-row select {
+      background: #3a3a3c;
+      color: #e0e0e0;
+      border: none;
+      border-radius: 8px;
+      padding: 5px 8px;
+      font-size: 12px;
+      outline: none;
+      cursor: pointer;
+    }
+
     #input-area {
       display: flex;
       align-items: flex-end;
@@ -304,6 +325,12 @@
         <polyline points="21 15 16 10 5 21"/>
       </svg>
     </button>
+    <button class="icon-btn" id="translate-btn" title="Translate">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 8l6 6"/><path d="M4 14l6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/>
+        <path d="M22 22l-5-10-5 10"/><path d="M14 18h6"/>
+      </svg>
+    </button>
     <button class="icon-btn" id="imagine-btn" title="Generate Image">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
@@ -316,6 +343,13 @@
         <path d="M20 4v7a4 4 0 0 1-4 4H4"/>
       </svg>
     </button>
+  </div>
+
+  <div id="translate-row">
+    <label>From</label>
+    <select id="from-lang"></select>
+    <label>To</label>
+    <select id="to-lang"></select>
   </div>
 
   <input type="file" id="file-input" accept="image/*" style="display:none">
@@ -341,7 +375,28 @@
     const sendBtn      = document.getElementById("send-btn");
     const attachBtn    = document.getElementById("attach-btn");
     const imagineBtn   = document.getElementById("imagine-btn");
+    const translateBtn  = document.getElementById("translate-btn");
+    const translateRow  = document.getElementById("translate-row");
+    const fromLangSel   = document.getElementById("from-lang");
+    const toLangSel     = document.getElementById("to-lang");
     const fileInput    = document.getElementById("file-input");
+
+    const LANGUAGES = [
+      "Afrikaans","Arabic","Bengali","Bulgarian","Catalan","Chinese (Simplified)",
+      "Chinese (Traditional)","Croatian","Czech","Danish","Dutch","English",
+      "Estonian","Finnish","French","German","Greek","Gujarati","Hebrew","Hindi",
+      "Hungarian","Indonesian","Italian","Japanese","Kannada","Korean","Latvian",
+      "Lithuanian","Malay","Malayalam","Marathi","Norwegian","Persian","Polish",
+      "Portuguese","Punjabi","Romanian","Russian","Serbian","Slovak","Slovenian",
+      "Spanish","Swahili","Swedish","Tamil","Telugu","Thai","Turkish","Ukrainian",
+      "Urdu","Vietnamese"
+    ];
+    LANGUAGES.forEach(lang => {
+      fromLangSel.append(Object.assign(document.createElement("option"), { value: lang, textContent: lang }));
+      toLangSel.append(Object.assign(document.createElement("option"), { value: lang, textContent: lang }));
+    });
+    fromLangSel.value = "English";
+    toLangSel.value = "Spanish";
     const previewWrap  = document.getElementById("image-preview-wrap");
     const previewImg   = document.getElementById("image-preview");
     const clearBtn     = document.getElementById("image-clear-btn");
@@ -369,6 +424,9 @@
         chatLog: restore ? restore.chatLog : [],
         saved: restore ? true : false,
         imagineMode: false,
+        translateMode: false,
+        fromLang: "English",
+        toLang: "Spanish",
         attachedImage: null,
         vendor: restore ? restore.vendor : null,
         model: restore ? restore.model : null,
@@ -505,6 +563,12 @@
       // sync imagine mode UI
       imagineBtn.classList.toggle("active", tab.imagineMode);
       prompt.placeholder = tab.imagineMode ? "Describe an image to generate…" : "Message…";
+
+      // sync translate mode UI
+      translateBtn.classList.toggle("active", tab.translateMode);
+      translateRow.classList.toggle("visible", tab.translateMode);
+      fromLangSel.value = tab.fromLang || "English";
+      toLangSel.value   = tab.toLang   || "Spanish";
 
       // repopulate vendor list filtered by this tab's imagineMode, then restore vendor/model
       const targetVendor = tab.vendor || vendorSel.value;
@@ -722,6 +786,16 @@
       modelSel.style.display = tab.imagineMode ? "none" : "";
     });
 
+    translateBtn.addEventListener("click", () => {
+      const tab = activeTab();
+      if (!tab) return;
+      tab.translateMode = !tab.translateMode;
+      translateBtn.classList.toggle("active", tab.translateMode);
+      translateRow.classList.toggle("visible", tab.translateMode);
+    });
+    fromLangSel.addEventListener("change", () => { const tab = activeTab(); if (tab) tab.fromLang = fromLangSel.value; });
+    toLangSel.addEventListener("change",   () => { const tab = activeTab(); if (tab) tab.toLang   = toLangSel.value; });
+
     // ── New tab button ─────────────────────────────────────────────────────────
     newTabBtn.addEventListener("click", () => createTab());
 
@@ -807,6 +881,14 @@
         }
       } else {
         addMessage("user", text, tabId);
+        if (tab.translateMode) {
+          const sysContent = `You are a helpful assistant. The user may write in ${tab.fromLang}. Understand their message and answer their question or respond to their request fully and naturally, but always write your response in ${tab.toLang}.`;
+          if (!tab.history.length || tab.history[0].role !== "system") {
+            tab.history.unshift({ role: "system", content: sysContent });
+          } else {
+            tab.history[0].content = sysContent;
+          }
+        }
         tab.history.push({ role: "user", content: text });
         tab.chatLog.push({ role: "user", content: text, images: [] });
         markUnsaved(tabId);
