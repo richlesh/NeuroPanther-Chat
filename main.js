@@ -92,7 +92,7 @@ function createWindow() {
 function showAbout() {
   const aboutWin = new BrowserWindow({
     width: 320,
-    height: 340,
+    height: 380,
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -374,7 +374,7 @@ async function fetchModels(vendor, apiKey) {
   }
   const client = new OpenAI({ apiKey, baseURL: VENDORS[vendor]?.baseURL });
   const res = await client.models.list();
-  return res.data.map(m => m.id).sort();
+  return res.data.map(m => m.id.replace(/^models\//, "")).sort();
 }
 
 ipcMain.handle("fetch-models", async (_event, { vendor, apiKey }) => {
@@ -541,6 +541,10 @@ ipcMain.on("chat-stream", async (event, { messages, vendor, model, agentMode }) 
 
   const tools = agentMode ? (vendor === "anthropic" ? ANTHROPIC_TOOLS : AGENT_TOOLS) : undefined;
 
+  // Gemini (google) doesn't support streaming when tool results are in history
+  const hasToolResults = messages.some(m => m.role === "tool");
+  const useNonStreaming = vendor === "google" && hasToolResults;
+
   try {
     if (vendor === "anthropic") {
       const client = new Anthropic({ apiKey });
@@ -568,6 +572,36 @@ ipcMain.on("chat-stream", async (event, { messages, vendor, model, agentMode }) 
         event.sender.send("stream-tool-calls", toolUses.map(t => ({ id: t.id, name: t.name, args: t.input })));
       } else {
         event.sender.send("stream-done", fullText);
+      }
+    } else if (useNonStreaming) {
+      // Google with tool results in history — use non-streaming
+      // Gemini rejects null content and system role in this path
+      // Gemini OpenAI-compat: strip system, fix null content, convert tool->user
+      let googleMessages = [];
+      let sysTxt = "";
+      for (const m of messages) {
+        if (m.role === "system") { sysTxt = m.content || ""; continue; }
+        if (m.role === "tool") {
+          googleMessages.push({ role: "user", content: "Tool result for " + m.name + ": " + m.content });
+        } else {
+          googleMessages.push({ ...m, content: m.content ?? "" });
+        }
+      }
+      if (sysTxt && googleMessages[0]?.role === "user") {
+        googleMessages[0] = { ...googleMessages[0], content: sysTxt + "\n\n" + googleMessages[0].content };
+      }
+      const client = new OpenAI({ apiKey, baseURL: VENDORS[vendor]?.baseURL });
+      const res = await client.chat.completions.create({ model, messages: googleMessages, ...(tools ? { tools, tool_choice: "auto" } : {}) });
+      const choice = res.choices[0];
+      if (choice.finish_reason === "tool_calls" && choice.message.tool_calls?.length) {
+        event.sender.send("stream-tool-calls", choice.message.tool_calls.map(tc => {
+          let args = {};
+          try { args = JSON.parse(tc.function.arguments); } catch { args = { raw: tc.function.arguments }; }
+          return { id: tc.id, name: tc.function.name, args };
+        }));
+      } else {
+        const text = choice.message.content || "";
+        event.sender.send("stream-done", text);
       }
     } else {
       const client = new OpenAI({ apiKey, baseURL: VENDORS[vendor]?.baseURL });

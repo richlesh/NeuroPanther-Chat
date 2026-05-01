@@ -79,7 +79,20 @@
     .msg.assistant blockquote { border-left: 3px solid #555; padding-left: 10px; color: #aaa; margin: 6px 0; }
     .msg.assistant a { color: #4da3ff; }
 
-    .msg img { max-width: 100%; border-radius: 10px; display: block; margin-top: 6px; }
+    .msg img { max-width: 100%; border-radius: 10px; display: block; margin-top: 6px; cursor: zoom-in; }
+
+    #img-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      cursor: zoom-out;
+    }
+    #img-modal.visible { display: flex; }
+    #img-modal img { max-width: 90vw; max-height: 90vh; border-radius: 8px; object-fit: contain; box-shadow: 0 8px 40px rgba(0,0,0,0.8); }
 
     .msg-actions {
       display: flex;
@@ -178,6 +191,23 @@
     .tool-allow-btn:hover { background: #15803d; }
     .tool-deny-btn  { background: #7f1d1d; border: none; color: #f87171; border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
     .tool-deny-btn:hover  { background: #991b1b; }
+
+    @keyframes pulse-dim {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+    .thinking-indicator {
+      align-self: flex-start;
+      background: none !important;
+      padding: 4px 0 !important;
+    }
+    .thinking-indicator img {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      animation: pulse-dim 1.6s ease-in-out infinite;
+      margin: 0 !important;
+    }
 
     #input-area {
       display: flex;
@@ -342,6 +372,8 @@
   </style>
 </head>
 <body>
+  <div id="img-modal"><img id="img-modal-img"></div>
+
   <div id="tab-bar">
     <!-- tabs injected here -->
     <button id="new-tab-btn" title="New Tab">+</button>
@@ -805,7 +837,7 @@
     modelSel.addEventListener("change", () => { rememberedModel[vendorSel.value] = modelSel.value; });
 
     // ── Image attach ───────────────────────────────────────────────────────────
-    attachBtn.addEventListener("click", () => fileInput.click());
+    attachBtn.addEventListener("click", () => { clearModes(activeTab()); fileInput.click(); });
 
     fileInput.addEventListener("change", () => {
       const file = fileInput.files[0];
@@ -831,6 +863,14 @@
       previewImg.src = "";
     }
 
+    // open all links in external browser
+    document.addEventListener("click", e => {
+      const a = e.target.closest("a");
+      if (!a || !a.href) return;
+      e.preventDefault();
+      ipcRenderer.invoke("open-external", a.href);
+    });
+
     // right-click context menu on any image in the chat
     chatEl.addEventListener("contextmenu", e => {
       if (e.target.tagName !== "IMG") return;
@@ -838,15 +878,47 @@
       ipcRenderer.invoke("image-context-menu", e.target.src);
     });
 
+    // click image to view full size
+    const imgModal    = document.getElementById("img-modal");
+    const imgModalImg = document.getElementById("img-modal-img");
+    chatEl.addEventListener("click", e => {
+      if (e.target.tagName !== "IMG") return;
+      imgModalImg.src = e.target.src;
+      imgModal.classList.add("visible");
+    });
+    imgModal.addEventListener("click", () => {
+      imgModal.classList.remove("visible");
+      imgModalImg.src = "";
+    });
+    document.addEventListener("keydown", e => {
+      if (e.key === "Escape") imgModal.classList.remove("visible");
+    });
+
     // ── Imagine mode toggle ────────────────────────────────────────────────────
+    function clearModes(tab) {
+      tab.imagineMode = false;
+      tab.agentMode = false;
+      imagineBtn.classList.remove("active");
+      agentBtn.classList.remove("active");
+      agentRow.classList.remove("visible");
+      prompt.placeholder = "Message…";
+      populateVendorSelect(allVendors, vendorSel.value, false);
+      modelSel.style.display = "";
+      clearImage();
+    }
+
     imagineBtn.addEventListener("click", () => {
       const tab = activeTab();
       if (!tab) return;
-      tab.imagineMode = !tab.imagineMode;
-      imagineBtn.classList.toggle("active", tab.imagineMode);
-      prompt.placeholder = tab.imagineMode ? "Describe an image to generate…" : "Message…";
-      populateVendorSelect(allVendors, vendorSel.value, tab.imagineMode);
-      modelSel.style.display = tab.imagineMode ? "none" : "";
+      const turningOn = !tab.imagineMode;
+      clearModes(tab);
+      if (turningOn) {
+        tab.imagineMode = true;
+        imagineBtn.classList.add("active");
+        prompt.placeholder = "Describe an image to generate…";
+        populateVendorSelect(allVendors, vendorSel.value, true);
+        modelSel.style.display = "none";
+      }
     });
 
     translateBtn.addEventListener("click", () => {
@@ -862,9 +934,13 @@
     agentBtn.addEventListener("click", () => {
       const tab = activeTab();
       if (!tab) return;
-      tab.agentMode = !tab.agentMode;
-      agentBtn.classList.toggle("active", tab.agentMode);
-      agentRow.classList.toggle("visible", tab.agentMode);
+      const turningOn = !tab.agentMode;
+      clearModes(tab);
+      if (turningOn) {
+        tab.agentMode = true;
+        agentBtn.classList.add("active");
+        agentRow.classList.add("visible");
+      }
     });
 
     agentDirBtn.addEventListener("click", async () => {
@@ -910,12 +986,14 @@
         try {
           const url = await ipcRenderer.invoke("generate-image", { promptText: text, vendor });
           thinking.innerHTML = "";
+          thinking.classList.remove("thinking-indicator");
           const img = document.createElement("img");
           img.src = url; img.style.maxWidth = "200px";
           thinking.appendChild(img);
           thinking.appendChild(makeImageDownloadAction(url, text));
           tab.chatLog.push({ role: "assistant", content: "", generatedImageUrl: url });
         } catch (err) {
+          thinking.classList.remove("thinking-indicator");
           thinking.className = "msg error";
           thinking.textContent = "Error: " + err.message;
           tab.chatLog.pop();
@@ -944,6 +1022,7 @@
         try {
           const tempPath = await ipcRenderer.invoke("save-temp-image", { base64: image.base64, mediaType: image.mediaType });
           const reply = await ipcRenderer.invoke("chat-with-image", { tempPath, mediaType: image.mediaType, text, vendor, model });
+          thinking.classList.remove("thinking-indicator");
           thinking.innerHTML = marked.parse(reply);
           addCodeCopyButtons(thinking);
           thinking.appendChild(makeActions(reply));
@@ -951,6 +1030,7 @@
           tab.history.push({ role: "assistant", content: reply });
           tab.chatLog.push({ role: "assistant", content: reply, images: [] });
         } catch (err) {
+          thinking.classList.remove("thinking-indicator");
           thinking.className = "msg error";
           thinking.textContent = "Error: " + err.message;
           tab.chatLog.pop();
@@ -983,6 +1063,8 @@
           await runStreaming(tab, tabId, vendor, model, thinking);
         }
         } catch (err) {
+          thinking.style.display = "";
+          thinking.classList.remove("thinking-indicator");
           thinking.className = "msg error";
           thinking.textContent = "Error: " + err.message;
           tab.chatLog.pop();
@@ -998,7 +1080,14 @@
       const tab = tabs[tabId];
       const div = document.createElement("div");
       div.className = `msg ${role}`;
-      div.textContent = text;
+      if (role === "assistant" && text === "…") {
+        div.classList.add("thinking-indicator");
+        const img = document.createElement("img");
+        img.src = "app_icon.png";
+        div.appendChild(img);
+      } else {
+        div.textContent = text;
+      }
       tab.container.appendChild(div);
       if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight;
       return div;
@@ -1008,9 +1097,8 @@
     function runStreaming(tab, tabId, vendor, model, thinkingEl) {
       return new Promise((resolve, reject) => {
         let reply = "";
-        thinkingEl.textContent = "";
 
-        const onChunk = (_e, chunk) => { reply += chunk; thinkingEl.innerHTML = marked.parse(reply); addCodeCopyButtons(thinkingEl); if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight; };
+        const onChunk = (_e, chunk) => { reply += chunk; thinkingEl.classList.remove("thinking-indicator"); thinkingEl.innerHTML = marked.parse(reply); addCodeCopyButtons(thinkingEl); if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight; };
         const onDone  = (_e, full)  => { cleanup(); finishAssistant(tab, tabId, thinkingEl, full); resolve(); };
         const onError = (_e, msg)   => { cleanup(); reject(new Error(msg)); };
 
@@ -1022,10 +1110,10 @@
         }
         const onTools = () => { cleanup(); reject(new Error("Unexpected tool call in non-agent mode")); };
 
-        ipcRenderer.on("stream-chunk",      onChunk);
-        ipcRenderer.on("stream-done",       onDone);
-        ipcRenderer.on("stream-error",      onError);
-        ipcRenderer.on("stream-tool-calls", onTools);
+        ipcRenderer.on("stream-chunk",       onChunk);
+        ipcRenderer.once("stream-done",       onDone);
+        ipcRenderer.once("stream-error",      onError);
+        ipcRenderer.once("stream-tool-calls", onTools);
         ipcRenderer.send("chat-stream", { messages: tab.history, vendor, model, agentMode: false });
       });
     }
@@ -1048,11 +1136,10 @@
       while (turns++ < MAX_TURNS) {
         const toolCalls = await new Promise((resolve, reject) => {
           let reply = "";
-          currentEl.textContent = "";
 
-          const onChunk = (_e, chunk) => { reply += chunk; currentEl.innerHTML = marked.parse(reply); addCodeCopyButtons(currentEl); if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight; };
+          const onChunk = (_e, chunk) => { reply += chunk; currentEl.classList.remove("thinking-indicator"); currentEl.innerHTML = marked.parse(reply); addCodeCopyButtons(currentEl); if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight; };
           const onDone  = (_e, full)  => { cleanup(); finishAssistant(tab, tabId, currentEl, full); resolve(null); };
-          const onError = (_e, msg)   => { cleanup(); reject(new Error(msg)); };
+          const onError = (_e, msg)   => { cleanup(); currentEl.style.display = "none"; reject(new Error(msg)); };
           const onTools = (_e, calls) => { cleanup(); resolve(calls); };
 
           function cleanup() {
@@ -1062,10 +1149,10 @@
             ipcRenderer.removeListener("stream-tool-calls", onTools);
           }
 
-          ipcRenderer.on("stream-chunk",      onChunk);
-          ipcRenderer.on("stream-done",       onDone);
-          ipcRenderer.on("stream-error",      onError);
-          ipcRenderer.on("stream-tool-calls", onTools);
+          ipcRenderer.on("stream-chunk",       onChunk);
+          ipcRenderer.once("stream-done",       onDone);
+          ipcRenderer.once("stream-error",      onError);
+          ipcRenderer.once("stream-tool-calls", onTools);
           ipcRenderer.send("chat-stream", { messages: tab.history, vendor, model, agentMode: true });
         });
 
@@ -1080,6 +1167,8 @@
 
         // show approval cards and collect results
         const toolResults = [];
+        // remove pulsating logo before showing tool cards
+        currentEl.style.display = "none";
         for (const tc of toolCalls) {
           const approved = await showToolApproval(tab, tabId, tc);
           let result;
@@ -1093,6 +1182,8 @@
           }
           if (vendor === "anthropic") {
             toolResults.push({ type: "tool_result", tool_use_id: tc.id, content: result });
+          } else if (vendor === "google") {
+            toolResults.push({ role: "tool", tool_call_id: tc.id, name: tc.name, content: result });
           } else {
             toolResults.push({ role: "tool", tool_call_id: tc.id, content: result });
           }
