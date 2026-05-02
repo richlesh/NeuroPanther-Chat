@@ -1,4 +1,5 @@
 {
+  "maxAttachmentSize": 52428800,
   "vendors": {
     "openai": {
       "label": "OpenAI",
@@ -42,6 +43,12 @@
       "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai",
       "imageGeneration": true,
       "imageModel": "imagen-4.0-generate-001"
+    },
+    "ollama": {
+      "label": "Ollama",
+      "models": [],
+      "baseURL": "http://localhost:11434/v1",
+      "imageGeneration": false
     }
   }
 }

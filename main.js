@@ -123,6 +123,10 @@ function buildMenu() {
         { label: "Settings…", click: openSettings },
         { label: "License Key…", click: openLicense },
         { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
         { role: "quit" }
       ]
     },
@@ -370,6 +374,11 @@ ipcMain.handle("save-chat-dialog", async (_event, data) => {
 });
 
 async function fetchModels(vendor, apiKey) {
+  if (vendor === "ollama") {
+    const res = await fetch("http://localhost:11434/api/tags");
+    const json = await res.json();
+    return (json.models || []).map(m => m.name).sort();
+  }
   if (vendor === "anthropic") {
     const client = new Anthropic({ apiKey });
     const res = await client.models.list();
@@ -391,12 +400,23 @@ ipcMain.handle("fetch-models", async (_event, { vendor, apiKey }) => {
 ipcMain.handle("get-models-for-vendor", async (_event, vendor) => {
   const { apiKeys } = load();
   const apiKey = apiKeys?.[vendor] || "";
-  if (!apiKey) return null;
+  if (!apiKey && vendor !== "ollama") return null;
   try {
     return await fetchModels(vendor, apiKey);
   } catch (e) {
     console.error(`get-models-for-vendor [${vendor}]:`, e.message);
     return VENDORS[vendor]?.models || null;
+  }
+});
+
+ipcMain.handle("ollama-available", async () => {
+  try {
+    const res = await fetch("http://localhost:11434/api/tags");
+    if (!res.ok) return false;
+    const json = await res.json();
+    return (json.models || []).map(m => m.name).sort();
+  } catch {
+    return false;
   }
 });
 
@@ -409,6 +429,10 @@ ipcMain.handle("get-vendors-and-settings", (event) => {
   const openFile = pendingOpenFile;
   pendingOpenFile = null;
   return { vendors: VENDORS, settings: load(), pendingLoad: pending || openFile || null };
+});
+
+ipcMain.handle("get-config", () => {
+  try { return JSON.parse(fs.readFileSync(path.join(__dirname, "config.json"), "utf8")); } catch { return {}; }
 });
 
 
@@ -546,7 +570,7 @@ const ANTHROPIC_TOOLS = AGENT_TOOLS.map(t => ({
 ipcMain.on("chat-stream", async (event, { messages, vendor, model, agentMode, sid }) => {
   const settings = load();
   const apiKey = settings.apiKeys?.[vendor] || "";
-  if (!apiKey) { event.sender.send("stream-error", sid, "You need to set the API key in Settings before this LLM vendor can be used."); return; }
+  if (!apiKey && vendor !== "ollama") { event.sender.send("stream-error", sid, "You need to set the API key in Settings before this LLM vendor can be used."); return; }
 
   const tools = agentMode ? (vendor === "anthropic" ? ANTHROPIC_TOOLS : AGENT_TOOLS) : undefined;
 
@@ -678,7 +702,7 @@ ipcMain.handle("chat", async (_event, { messages, vendor: vendorOverride, model:
   const vendor = vendorOverride || settings.vendor;
   const model  = modelOverride  || settings.model;
   const apiKey = settings.apiKeys?.[vendor] || "";
-  if (!apiKey) throw new Error("You need to set the API key in Settings before this LLM vendor can be used.");
+  if (!apiKey && vendor !== "ollama") throw new Error("You need to set the API key in Settings before this LLM vendor can be used.");
 
   if (vendor === "anthropic") {
     const client = new Anthropic({ apiKey });

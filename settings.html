@@ -60,7 +60,7 @@
     <label>Model</label>
     <select id="model"></select>
   </div>
-  <div>
+  <div id="api-key-section">
     <label>API Key</label>
     <input id="apiKey" type="password" placeholder="Enter API key…">
     <a id="api-key-link" href="#" target="_blank">Get API key…</a>
@@ -161,15 +161,25 @@
     });
 
     function updateLink(vendor) {
-      apiKeyLink.href = vendors[vendor].apiKeyUrl;
+      const apiKeySection = document.getElementById("api-key-section");
+      if (vendor === "ollama") {
+        apiKeySection.style.display = "none";
+      } else {
+        apiKeySection.style.display = "";
+        apiKeyLink.href = vendors[vendor].apiKeyUrl || "#";
+      }
     }
 
     async function populateModels(vendor, savedModel) {
       modelSel.innerHTML = "<option disabled>Loading…</option>";
-      const apiKey = current.apiKeys[vendor] || "";
       let models = null;
-      if (apiKey) models = await ipcRenderer.invoke("fetch-models", { vendor, apiKey });
-      if (!models) models = vendors[vendor].models;
+      if (vendor === "ollama") {
+        models = await ipcRenderer.invoke("get-models-for-vendor", "ollama");
+      } else {
+        const apiKey = current.apiKeys[vendor] || "";
+        if (apiKey) models = await ipcRenderer.invoke("fetch-models", { vendor, apiKey });
+      }
+      if (!models || models.length === 0) models = vendors[vendor].models;
       modelSel.innerHTML = "";
       for (const m of models) {
         const opt = document.createElement("option");

@@ -18,7 +18,7 @@
     @media print {
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body { background: #fff; color: #000; font-family: -apple-system, sans-serif; height: auto !important; overflow: visible !important; }
-      #input-area, #image-preview-wrap, .msg-actions, .code-copy-btn { display: none !important; }
+      #input-area, #attachment-preview-wrap, .msg-actions, .code-copy-btn { display: none !important; }
       #chat { display: block; padding: 0; height: auto !important; overflow: visible !important; }
       .msg { max-width: 100%; border-radius: 0; margin-bottom: 12px; padding: 8px 12px; page-break-inside: avoid; }
       .msg.user { background: #e8f0fe; color: #000; text-align: right; }
@@ -124,24 +124,40 @@
     .msg-actions button:hover   { color: #e0e0e0; background: #3a3a3c; }
     .msg-actions button.speaking { color: var(--accent); }
 
-    #image-preview-wrap {
+    #attachment-preview-wrap {
       display: none;
+      flex-wrap: wrap;
       align-items: center;
       gap: 8px;
       padding: 6px 16px;
       background: #252525;
       border-top: 1px solid #333;
     }
-    #image-preview-wrap img { height: 48px; border-radius: 6px; }
-    #image-preview-wrap button {
+    .attach-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: #3a3a3c;
+      border-radius: 8px;
+      padding: 4px 8px;
+      font-size: 12px;
+      color: #ccc;
+      max-width: 200px;
+    }
+    .attach-badge img { height: 40px; border-radius: 4px; flex-shrink: 0; }
+    .attach-badge-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .attach-badge-remove {
       background: none;
       border: none;
       color: #888;
       cursor: pointer;
-      font-size: 16px;
+      font-size: 14px;
       line-height: 1;
+      flex-shrink: 0;
+      padding: 0 2px;
     }
-    #image-preview-wrap button:hover { color: #ff453a; }
+    .attach-badge-remove:hover { color: #ff453a; }
+    #chat.drag-over { outline: 2px dashed var(--accent); outline-offset: -4px; }
 
     #translate-row {
       display: none;
@@ -216,6 +232,14 @@
       border-radius: 0 !important;
       animation: pulse-dim 1.6s ease-in-out infinite;
       margin: 0 !important;
+    }
+    .thinking-text {
+      display: inline-block;
+      vertical-align: middle;
+      margin-left: 10px;
+      color: #aaa;
+      font-size: 13px;
+      font-style: italic;
     }
 
     #input-area {
@@ -394,15 +418,12 @@
   </div>
   <div id="chat"></div>
 
-  <div id="image-preview-wrap">
-    <img id="image-preview">
-    <button id="image-clear-btn" title="Remove image">✕</button>
-  </div>
+  <div id="attachment-preview-wrap"></div>
 
   <div id="input-area">
     <select id="vendor-select" title="Vendor"></select>
     <select id="model-select" title="Model"></select>
-    <button class="icon-btn" id="attach-btn" title="Attach image">
+    <button class="icon-btn" id="attach-btn" title="Attach file(s)">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
         <polyline points="21 15 16 10 5 21"/>
@@ -451,7 +472,7 @@
     <button id="agent-dir-btn">Set Directory</button>
   </div>
 
-  <input type="file" id="file-input" accept="image/*" style="display:none">
+  <input type="file" id="file-input" multiple style="display:none">
 
   <script>
     const { ipcRenderer, shell } = require("electron");
@@ -499,9 +520,7 @@
       toLangSel.append(Object.assign(document.createElement("option"), { value: lang, textContent: lang }));
     });
     toLangSel.value   = defaultToLang;
-    const previewWrap  = document.getElementById("image-preview-wrap");
-    const previewImg   = document.getElementById("image-preview");
-    const clearBtn     = document.getElementById("image-clear-btn");
+    const previewWrap  = document.getElementById("attachment-preview-wrap");
     const vendorSel    = document.getElementById("vendor-select");
     const modelSel     = document.getElementById("model-select");
     const tabBar       = document.getElementById("tab-bar");
@@ -510,7 +529,7 @@
     // ── Tab state ──────────────────────────────────────────────────────────────
     let tabIdCounter = 0;
     let activeTabId  = null;
-    const tabs = {};   // id → { id, title, history, chatLog, saved, imagineMode, attachedImage, domEl, chatSnapshot }
+    const tabs = {};   // id → { id, title, history, chatLog, saved, imagineMode, attachedFiles, domEl, chatSnapshot }
 
     function createTab(title = "New Chat", restore = null) {
       const id = ++tabIdCounter;
@@ -534,7 +553,7 @@
         agentMode: false,
         locked: restore && restore.chatLog?.length > 0,
         promptText: "",
-        attachedImage: null,
+        attachedFiles: [],
         vendor: restore ? restore.vendor : null,
         model: restore ? restore.model : null,
         domEl: null,
@@ -692,7 +711,9 @@
         modelSel.style.display = tab.imagineMode ? "none" : "";
       });
 
-      clearImage();
+      clearAttachments();
+      // restore attachment badges for this tab
+      for (const entry of (tab.attachedFiles || [])) addAttachBadge(tab, entry);
       prompt.value = tab.promptText || "";
       prompt.style.height = "auto";
       if (prompt.value) prompt.style.height = Math.min(prompt.scrollHeight, 120) + "px";
@@ -837,13 +858,14 @@
     let allVendors = {};
     const rememberedModel = {};
 
-    ipcRenderer.invoke("get-vendors-and-settings").then(({ vendors, settings, pendingLoad }) => {
+    ipcRenderer.invoke("get-vendors-and-settings").then(async ({ vendors, settings, pendingLoad }) => {
       allVendors = vendors;
       // seed rememberedModel from saved defaults for all vendors
       if (settings.defaultModels) {
         Object.assign(rememberedModel, settings.defaultModels);
       }
       rememberedModel[settings.vendor] = settings.defaultModels?.[settings.vendor] || settings.model;
+      ollamaAvailable = !!(await ipcRenderer.invoke("ollama-available"));
       populateVendorSelect(vendors, settings.vendor, false);
 
       // load default languages
@@ -876,6 +898,8 @@
       }
     });
 
+    let ollamaAvailable = false;
+
     function populateVendorSelectOnly(vendors, selectedVendor, imagineOnly) {
       const current = selectedVendor || vendorSel.value;
       vendorSel.innerHTML = "";
@@ -883,9 +907,14 @@
         if (imagineOnly && !v.imageGeneration) continue;
         const opt = document.createElement("option");
         opt.value = key; opt.textContent = v.label;
+        if (key === "ollama" && !ollamaAvailable) {
+          opt.disabled = true;
+          opt.textContent = "Ollama (not running)";
+          opt.style.color = "#666";
+        }
         vendorSel.appendChild(opt);
       }
-      vendorSel.value = current;
+      vendorSel.value = (current === "ollama" && !ollamaAvailable) ? Object.keys(vendors).find(k => k !== "ollama") || "" : current;
       if (!vendorSel.value) vendorSel.selectedIndex = 0;
       vendorSel.dataset.prev = vendorSel.value;
     }
@@ -927,7 +956,91 @@
       if (tab) tab.model = modelSel.value;
     });
 
-    // ── Image attach ───────────────────────────────────────────────────────────
+    // ── File attach ────────────────────────────────────────────────────────────
+    const TEXT_EXTS = new Set([
+      "txt","md","markdown","csv","tsv","json","jsonl","xml","yaml","yml",
+      "html","htm","css","js","ts","jsx","tsx","py","rb","java","c","cpp",
+      "h","hpp","cs","go","rs","swift","kt","sh","bash","zsh","fish","ps1",
+      "sql","graphql","toml","ini","cfg","conf","env","log","diff","patch",
+      "r","m","scala","clj","ex","exs","erl","hs","lua","pl","php","vue",
+      "svelte","astro","tf","hcl","dockerfile","makefile","cmake","gradle"
+    ]);
+    const IMAGE_TYPES = new Set(["image/png","image/jpeg","image/gif","image/webp","image/svg+xml"]);
+    let maxAttachmentSize = 52428800;
+    ipcRenderer.invoke("get-config").then(cfg => { if (cfg?.maxAttachmentSize) maxAttachmentSize = cfg.maxAttachmentSize; });
+
+    function processFiles(files) {
+      const tab = activeTab();
+      if (!tab) return;
+      for (const file of files) {
+        if (file.size > maxAttachmentSize) {
+          alert(`"${file.name}" exceeds the ${Math.round(maxAttachmentSize / 1048576)}MB size limit and was not attached.`);
+          continue;
+        }
+        const ext = file.name.split(".").pop().toLowerCase();
+        const isImage = IMAGE_TYPES.has(file.type);
+        const isText  = TEXT_EXTS.has(ext) || file.type.startsWith("text/");
+        if (!isImage && !isText) {
+          alert(`"${file.name}" is not a supported file type. Only images and text-based files can be attached.`);
+          continue;
+        }
+        const reader = new FileReader();
+        if (isImage) {
+          reader.onload = e => {
+            const dataUrl = e.target.result;
+            const entry = { name: file.name, type: "image", mediaType: file.type, base64: dataUrl.split(",")[1], dataUrl };
+            tab.attachedFiles.push(entry);
+            addAttachBadge(tab, entry);
+          };
+          reader.readAsDataURL(file);
+        } else {
+          reader.onload = e => {
+            const entry = { name: file.name, type: "text", content: e.target.result };
+            tab.attachedFiles.push(entry);
+            addAttachBadge(tab, entry);
+          };
+          reader.readAsText(file);
+        }
+      }
+    }
+
+    function addAttachBadge(tab, entry) {
+      const badge = document.createElement("div");
+      badge.className = "attach-badge";
+      if (entry.type === "image") {
+        const img = document.createElement("img");
+        img.src = entry.dataUrl;
+        badge.appendChild(img);
+      } else {
+        const icon = document.createElement("span");
+        icon.textContent = "📄";
+        badge.appendChild(icon);
+      }
+      const name = document.createElement("span");
+      name.className = "attach-badge-name";
+      name.textContent = entry.name;
+      badge.appendChild(name);
+      const rm = document.createElement("button");
+      rm.className = "attach-badge-remove";
+      rm.title = "Remove";
+      rm.textContent = "✕";
+      rm.addEventListener("click", () => {
+        tab.attachedFiles = tab.attachedFiles.filter(f => f !== entry);
+        badge.remove();
+        if (!previewWrap.children.length) previewWrap.style.display = "none";
+      });
+      badge.appendChild(rm);
+      previewWrap.appendChild(badge);
+      previewWrap.style.display = "flex";
+    }
+
+    function clearAttachments() {
+      const tab = activeTab();
+      if (tab) tab.attachedFiles = [];
+      previewWrap.innerHTML = "";
+      previewWrap.style.display = "none";
+    }
+
     attachBtn.addEventListener("click", () => {
       const tab = activeTab();
       if (!tab?.imagineMode) clearModes(tab);
@@ -935,28 +1048,19 @@
     });
 
     fileInput.addEventListener("change", () => {
-      const file = fileInput.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = e => {
-        const dataUrl = e.target.result;
-        const base64 = dataUrl.split(",")[1];
-        const tab = activeTab();
-        if (tab) tab.attachedImage = { base64, mediaType: file.type, dataUrl };
-        previewImg.src = dataUrl;
-        previewWrap.style.display = "flex";
-      };
-      reader.readAsDataURL(file);
+      processFiles(fileInput.files);
       fileInput.value = "";
     });
 
-    clearBtn.addEventListener("click", clearImage);
-    function clearImage() {
-      const tab = activeTab();
-      if (tab) tab.attachedImage = null;
-      previewWrap.style.display = "none";
-      previewImg.src = "";
-    }
+    // drag-and-drop onto chat area
+    chatEl.addEventListener("dragover", e => {
+      if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); chatEl.classList.add("drag-over"); }
+    });
+    chatEl.addEventListener("dragleave", e => { if (!chatEl.contains(e.relatedTarget)) chatEl.classList.remove("drag-over"); });
+    chatEl.addEventListener("drop", e => {
+      chatEl.classList.remove("drag-over");
+      if (e.dataTransfer.files.length) { e.preventDefault(); processFiles(e.dataTransfer.files); }
+    });
 
     // open all links in external browser
     document.addEventListener("click", e => {
@@ -1005,7 +1109,7 @@
       prompt.placeholder = "Message…";
       populateVendorSelect(allVendors, vendorSel.value, false);
       modelSel.style.display = "";
-      clearImage();
+      clearAttachments();
     }
 
     imagineBtn.addEventListener("click", () => {
@@ -1081,23 +1185,24 @@
       if (tab.imagineMode) {
         const userDiv = document.createElement("div");
         userDiv.className = "msg user";
-        if (tab.attachedImage) {
+        const imageFile = tab.attachedFiles.find(f => f.type === "image");
+        if (imageFile) {
           const imgEl = document.createElement("img");
-          imgEl.src = tab.attachedImage.dataUrl; imgEl.style.maxWidth = "200px";
+          imgEl.src = imageFile.dataUrl; imgEl.style.maxWidth = "200px";
           userDiv.appendChild(imgEl);
         }
         const textEl = document.createElement("div");
         textEl.textContent = `🎨 ${text}`;
-        if (tab.attachedImage) textEl.style.marginTop = "6px";
+        if (imageFile) textEl.style.marginTop = "6px";
         userDiv.appendChild(textEl);
         tabs[tabId].container.appendChild(userDiv);
         if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight;
-        tab.chatLog.push({ role: "user", content: `🎨 ${text}`, images: tab.attachedImage ? [tab.attachedImage.dataUrl] : [] });
+        tab.chatLog.push({ role: "user", content: `🎨 ${text}`, images: imageFile ? [imageFile.dataUrl] : [] });
         markUnsaved(tabId);
         const thinking = addMessage("assistant", "…", tabId);
         try {
-          const sourceImageBase64 = tab.attachedImage?.base64 || tab.lastGeneratedImageBase64 || null;
-          if (tab.attachedImage) clearImage();
+          const sourceImageBase64 = imageFile?.base64 || tab.lastGeneratedImageBase64 || null;
+          clearAttachments();
           const url = await ipcRenderer.invoke("generate-image", { promptText: text, vendor, sourceImageBase64 });
           thinking.innerHTML = "";
           thinking.classList.remove("thinking-indicator");
@@ -1106,7 +1211,6 @@
           thinking.appendChild(img);
           thinking.appendChild(makeImageDownloadAction(url, text));
           tab.chatLog.push({ role: "assistant", content: "", generatedImageUrl: url });
-          // store base64 for potential edit on next prompt
           tab.lastGeneratedImageBase64 = url.split(",")[1];
         } catch (err) {
           thinking.classList.remove("thinking-indicator");
@@ -1114,16 +1218,25 @@
           thinking.textContent = "Error: " + err.message;
           tab.chatLog.pop();
         }
-      } else if (tab.attachedImage) {
-        const image = tab.attachedImage;
-        const dataUrl = image.dataUrl;
-        clearImage();
+      } else if (tab.attachedFiles.length) {
+        const files = tab.attachedFiles.slice();
+        clearAttachments();
 
+        // Build user bubble showing image thumbnails + file badges
         const userDiv = document.createElement("div");
         userDiv.className = "msg user";
-        const imgEl = document.createElement("img");
-        imgEl.src = dataUrl; imgEl.style.maxWidth = "200px";
-        userDiv.appendChild(imgEl);
+        for (const f of files) {
+          if (f.type === "image") {
+            const imgEl = document.createElement("img");
+            imgEl.src = f.dataUrl; imgEl.style.maxWidth = "200px";
+            userDiv.appendChild(imgEl);
+          } else {
+            const badge = document.createElement("span");
+            badge.style.cssText = "display:inline-block;background:#3a3a3c;border-radius:6px;padding:2px 8px;font-size:12px;margin:2px 4px 2px 0;";
+            badge.textContent = `📄 ${f.name}`;
+            userDiv.appendChild(badge);
+          }
+        }
         if (text) {
           const p = document.createElement("div");
           p.textContent = text; p.style.marginTop = "6px";
@@ -1131,21 +1244,53 @@
         }
         tab.container.appendChild(userDiv);
         if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight;
-        tab.chatLog.push({ role: "user", content: text || "", images: [dataUrl] });
+        tab.chatLog.push({ role: "user", content: text || "", images: files.filter(f => f.type === "image").map(f => f.dataUrl) });
         markUnsaved(tabId);
 
+        // Build the user history message with inline file content
+        const imageFiles = files.filter(f => f.type === "image");
+        const textFiles  = files.filter(f => f.type === "text");
+        let fileContext = "";
+        for (const f of textFiles) {
+          fileContext += `\n\n--- File: ${f.name} ---\n${f.content}`;
+        }
+        const userText = (text || "") + fileContext;
+
+        if (!tab.locked) { tab.locked = true; applyVendorLock(tab); }
         const thinking = addMessage("assistant", "…", tabId);
         try {
-          const tempPath = await ipcRenderer.invoke("save-temp-image", { base64: image.base64, mediaType: image.mediaType });
-          const reply = await ipcRenderer.invoke("chat-with-image", { tempPath, mediaType: image.mediaType, text, vendor, model });
-          thinking.classList.remove("thinking-indicator");
-          thinking.innerHTML = marked.parse(reply);
-          addCodeCopyButtons(thinking);
-          thinking.appendChild(makeActions(reply));
-          tab.history.push({ role: "user", content: text || "What is in this image?" });
-          tab.history.push({ role: "assistant", content: reply });
-          tab.chatLog.push({ role: "assistant", content: reply, images: [] });
+          if (imageFiles.length === 1 && textFiles.length === 0) {
+            // Single image — use existing chat-with-image path
+            const img = imageFiles[0];
+            const tempPath = await ipcRenderer.invoke("save-temp-image", { base64: img.base64, mediaType: img.mediaType });
+            const reply = await ipcRenderer.invoke("chat-with-image", { tempPath, mediaType: img.mediaType, text: text || "What is in this image?", vendor, model });
+            thinking.classList.remove("thinking-indicator");
+            thinking.innerHTML = marked.parse(reply);
+            addCodeCopyButtons(thinking);
+            thinking.appendChild(makeActions(reply));
+            tab.history.push({ role: "user", content: text || "What is in this image?" });
+            tab.history.push({ role: "assistant", content: reply });
+            tab.chatLog.push({ role: "assistant", content: reply, images: [] });
+          } else {
+            // Text files, multiple images, or mixed — inject content as text
+            tab.history.push({ role: "user", content: userText });
+            tab.chatLog.push({ role: "user", content: userText, images: [] });
+            if (tab.agentMode) {
+              const today = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+              const langInstruction = tab.translateMode ? ` Always respond in ${tab.toLang}, regardless of the language the user writes in.` : "";
+              const sysContent = `You are a helpful AI assistant with access to tools. Today's date is ${today}. Use tools as needed to answer the user's request.${langInstruction}`;
+              if (!tab.history.length || tab.history[0].role !== "system") {
+                tab.history.unshift({ role: "system", content: sysContent });
+              } else {
+                tab.history[0].content = sysContent;
+              }
+              await runAgentLoop(tab, tabId, vendor, model, thinking);
+            } else {
+              await runStreaming(tab, tabId, vendor, model, thinking);
+            }
+          }
         } catch (err) {
+          thinking.style.display = "";
           thinking.classList.remove("thinking-indicator");
           thinking.className = "msg error";
           thinking.textContent = "Error: " + err.message;
@@ -1181,10 +1326,12 @@
           await runStreaming(tab, tabId, vendor, model, thinking);
         }
         } catch (err) {
-          thinking.style.display = "";
-          thinking.classList.remove("thinking-indicator");
-          thinking.className = "msg error";
-          thinking.textContent = "Error: " + err.message;
+          if (!tab.agentMode) {
+            thinking.style.display = "";
+            thinking.classList.remove("thinking-indicator");
+            thinking.className = "msg error";
+            thinking.textContent = "Error: " + err.message;
+          }
           tab.chatLog.pop();
         }
       }
@@ -1238,6 +1385,7 @@
     }
 
     function finishAssistant(tab, tabId, el, reply) {
+      el.classList.remove("thinking-indicator");
       el.innerHTML = marked.parse(reply);
       addCodeCopyButtons(el);
       el.appendChild(makeActions(reply));
@@ -1252,15 +1400,23 @@
       let turns = 0;
       let currentEl = thinkingEl;
 
+      try {
       while (turns++ < MAX_TURNS) {
         const toolCalls = await new Promise((resolve, reject) => {
           let reply = "";
           const sid = "s" + Date.now() + Math.random();
 
-          const onChunk = (_e, id, chunk) => { if (id !== sid) return; reply += chunk; currentEl.classList.remove("thinking-indicator"); currentEl.innerHTML = marked.parse(reply); addCodeCopyButtons(currentEl); if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight; };
-          const onDone  = (_e, id, full)  => { if (id !== sid) return; cleanup(); finishAssistant(tab, tabId, currentEl, full); resolve(null); };
-          const onError = (_e, id, msg)   => { if (id !== sid) return; cleanup(); currentEl.style.display = "none"; reject(new Error(msg)); };
-          const onTools = (_e, id, calls) => { if (id !== sid) return; cleanup(); resolve(calls); };
+          const onChunk = (_e, id, chunk) => {
+            if (id !== sid) return;
+            reply += chunk;
+            let textEl = currentEl.querySelector(".thinking-text");
+            if (!textEl) { textEl = document.createElement("span"); textEl.className = "thinking-text"; currentEl.appendChild(textEl); }
+            textEl.textContent = reply;
+            if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight;
+          };
+          const onDone  = (_e, id, full)  => { if (id !== sid) return; cleanup(); currentEl.style.display = ""; finishAssistant(tab, tabId, currentEl, full); resolve(null); };
+          const onError = (_e, id, msg)   => { if (id !== sid) return; cleanup(); reject(new Error(msg)); };
+          const onTools = (_e, id, calls) => { if (id !== sid) return; cleanup(); if (reply) { tab.chatLog.push({ role: "assistant", content: reply, images: [] }); markUnsaved(tabId); } resolve(calls); };
 
           function cleanup() {
             ipcRenderer.removeListener("stream-chunk",      onChunk);
@@ -1287,7 +1443,7 @@
 
         // show approval cards and collect results
         const toolResults = [];
-        // remove pulsating logo before showing tool cards
+        // hide the thinking element (icon + any streamed text) before showing approval cards
         currentEl.style.display = "none";
         for (const tc of toolCalls) {
           const approved = await showToolApproval(tab, tabId, tc);
@@ -1318,6 +1474,15 @@
 
         // next turn
         currentEl = addMessage("assistant", "…", tabId);
+      }
+      // clean up any dangling thinking indicator if loop exited without a final response
+      if (currentEl.classList.contains("thinking-indicator")) currentEl.style.display = "none";
+      } catch (err) {
+        currentEl.style.display = "";
+        currentEl.classList.remove("thinking-indicator");
+        currentEl.className = "msg error";
+        currentEl.textContent = "Error: " + err.message;
+        throw err; // re-throw so send()'s catch can clean up chatLog
       }
     }
 
@@ -1654,6 +1819,10 @@
       prompt.style.height = Math.min(prompt.scrollHeight, 120) + "px";
       sendBtn.disabled = !prompt.value.trim();
     });
+
+    // prevent drag-and-drop into textarea
+    prompt.addEventListener("dragover", e => e.preventDefault());
+    prompt.addEventListener("drop", e => e.preventDefault());
   </script>
 </body>
 </html>
