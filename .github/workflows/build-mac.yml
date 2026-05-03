@@ -61,4 +61,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload ${{ github.event.inputs.tag }} \
-            dist/NeuroPanther-chat-*.dmg --clobber
+            dist/NeuroPanther-Chat-*.dmg --clobber
