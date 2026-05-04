@@ -13,11 +13,6 @@ function openExternal(url) {
   if (process.platform === "linux") {
     const child = spawn("xdg-open", [url], { detached: true, stdio: "ignore" });
     child.unref();
-    // After a short delay, try to raise the browser window via wmctrl if available
-    setTimeout(() => {
-      const wm = spawn("wmctrl", ["-a", "firefox"], { detached: true, stdio: "ignore" });
-      wm.unref();
-    }, 500);
   } else {
     shell.openExternal(url);
   }
