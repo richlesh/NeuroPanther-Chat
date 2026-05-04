@@ -54,6 +54,7 @@
       ]
     },
     "linux": {
+      "icon": "app_icon_256.png",
       "category": "Network",
       "target": [
         {
