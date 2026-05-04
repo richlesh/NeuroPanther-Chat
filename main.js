@@ -127,6 +127,7 @@ function showAbout() {
 }
 
 function buildMenu() {
+  const isMac = process.platform === "darwin";
   const template = [
     {
       label: app.name,
@@ -136,10 +137,12 @@ function buildMenu() {
         { label: "Settings…", click: openSettings },
         { label: "License Key…", click: openLicense },
         { type: "separator" },
-        { role: "hide" },
-        { role: "hideOthers" },
-        { role: "unhide" },
-        { type: "separator" },
+        ...(isMac ? [
+          { role: "hide" },
+          { role: "hideOthers" },
+          { role: "unhide" },
+          { type: "separator" },
+        ] : []),
         { role: "quit" }
       ]
     },
@@ -222,15 +225,17 @@ function buildMenu() {
       label: "Window",
       submenu: [
         { role: "minimize" },
-        { role: "zoom" },
+        ...(isMac ? [{ role: "zoom" }] : []),
         { type: "separator" },
         {
           label: "Toggle Developer Tools",
-          accelerator: process.platform === "darwin" ? "Cmd+Option+I" : "Ctrl+Shift+I",
+          accelerator: isMac ? "Cmd+Option+I" : "Ctrl+Shift+I",
           click: () => BrowserWindow.getFocusedWindow()?.webContents.toggleDevTools()
         },
-        { type: "separator" },
-        { role: "front" }
+        ...(isMac ? [
+          { type: "separator" },
+          { role: "front" },
+        ] : []),
       ]
     }
   ];
