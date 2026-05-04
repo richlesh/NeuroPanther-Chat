@@ -102,7 +102,7 @@ function createWindow() {
 
 let aboutWin;
 function showAbout() {
-  if (aboutWin) return aboutWin.focus();
+  if (aboutWin && !aboutWin.isDestroyed()) return aboutWin.focus();
   aboutWin = new BrowserWindow({
     width: 320,
     height: 420,
@@ -112,10 +112,20 @@ function showAbout() {
     parent: mainWin,
     modal: true,
     icon: appIcon,
+    show: false,
     webPreferences: { nodeIntegration: true, contextIsolation: false }
   });
   aboutWin.setMenuBarVisibility(false);
   aboutWin.loadFile("about.html");
+  aboutWin.once("ready-to-show", () => {
+    if (mainWin && !mainWin.isDestroyed()) {
+      const [px, py] = mainWin.getPosition();
+      const [pw, ph] = mainWin.getSize();
+      const [w, h] = aboutWin.getSize();
+      aboutWin.setPosition(Math.round(px + (pw - w) / 2), Math.round(py + (ph - h) / 2));
+    }
+    aboutWin.show();
+  });
   aboutWin.webContents.once("did-finish-load", () => {
     aboutWin.webContents.send("icon-path", path.join(__dirname, "app_icon.png"));
     aboutWin.webContents.send("app-version", require("./package.json").version);
@@ -613,13 +623,16 @@ ipcMain.handle("agent-execute-tool", async (_event, { tool, args }) => {
       return { ok: true, result: results.slice(0, 100).join("\n") || "No matches found" };
     }
     if (tool === "run_code") {
+      if (!fs.existsSync(workDir)) return { ok: false, result: `Working directory does not exist: ${workDir}` };
       return await new Promise(resolve => {
+        let resolved = false;
         const proc = spawn(args.command, { shell: process.env.SHELL || true, cwd: workDir });
         let stdout = "", stderr = "";
         proc.stdout.on("data", d => { stdout += d; });
         proc.stderr.on("data", d => { stderr += d; });
-        proc.on("close", code => resolve({ ok: true, result: (stdout + stderr).slice(0, 4000) + (code !== 0 ? `\n[exit ${code}]` : "") }));
-        setTimeout(() => { proc.kill(); resolve({ ok: true, result: "[timeout after 30s]" }); }, 30000);
+        proc.on("error", err => { if (!resolved) { resolved = true; resolve({ ok: false, result: err.message }); } });
+        proc.on("close", code => { if (!resolved) { resolved = true; resolve({ ok: true, result: (stdout + stderr).slice(0, 4000) + (code !== 0 ? `\n[exit ${code}]` : "") }); } });
+        setTimeout(() => { if (!resolved) { resolved = true; proc.kill(); resolve({ ok: true, result: "[timeout after 30s]" }); } }, 30000);
       });
     }
     if (tool === "web_search") {
