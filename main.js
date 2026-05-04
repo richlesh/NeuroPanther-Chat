@@ -614,7 +614,7 @@ ipcMain.handle("agent-execute-tool", async (_event, { tool, args }) => {
     }
     if (tool === "run_code") {
       return await new Promise(resolve => {
-        const proc = spawn(args.command, { shell: true, cwd: workDir });
+        const proc = spawn(args.command, { shell: process.env.SHELL || true, cwd: workDir });
         let stdout = "", stderr = "";
         proc.stdout.on("data", d => { stdout += d; });
         proc.stderr.on("data", d => { stderr += d; });
