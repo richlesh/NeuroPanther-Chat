@@ -820,7 +820,7 @@
       applyVendorLock(tab);
 
       // repopulate vendor list filtered by this tab's imagineMode, then restore vendor/model
-      const targetVendor = tab.vendor || vendorSel.value;
+      const targetVendor = tab.vendor || defaultVendor || vendorSel.value;
       populateVendorSelectOnly(allVendors, targetVendor, tab.imagineMode);
       if (tab.model) modelSel.value = tab.model;
       fetchAndPopulateModels(vendorSel.value, tab.model || null).then(() => {
@@ -983,6 +983,7 @@
     // ── Vendor / model ─────────────────────────────────────────────────────────
     let allVendors = {};
     const rememberedModel = {};
+    let defaultVendor = "";
     let displayModelActivity = true;
 
     ipcRenderer.invoke("get-vendors-and-settings").then(async ({ vendors, settings, pendingLoad }) => {
@@ -992,6 +993,7 @@
         Object.assign(rememberedModel, settings.defaultModels);
       }
       rememberedModel[settings.vendor] = settings.defaultModels?.[settings.vendor] || settings.model;
+      defaultVendor = settings.vendor;
       ollamaAvailable = !!(await ipcRenderer.invoke("ollama-available"));
       populateVendorSelect(vendors, settings.vendor, false);
 
@@ -1921,6 +1923,9 @@
       ipcRenderer.invoke("get-vendors-and-settings").then(({ settings }) => {
         defaultToLang   = settings.defaultToLang   || "English";
         displayModelActivity = settings.displayModelActivity !== false;
+        if (settings.defaultModels) Object.assign(rememberedModel, settings.defaultModels);
+        rememberedModel[settings.vendor] = settings.defaultModels?.[settings.vendor] || settings.model;
+        defaultVendor = settings.vendor;
         applyColors(settings);
         updateMicAvailability();
       });

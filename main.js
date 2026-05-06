@@ -482,7 +482,9 @@ ipcMain.handle("settings-save", (_e, newSettings) => {
   const existing = load();
   save({ ...existing, ...newSettings });
   settingsWin?.close();
-  mainWin?.webContents.send("settings-updated");
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send("settings-updated");
+  }
 });
 
 ipcMain.handle("settings-cancel", () => settingsWin?.close());
