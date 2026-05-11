@@ -16,7 +16,7 @@
 - **Constants**: camelCase for module-level (`SETTINGS_PATH`, `VENDORS`, `LICENSE_SALT` are SCREAMING_SNAKE for true constants)
 - **IPC channel names**: kebab-case strings (`"chat"`, `"save-chat-dialog"`, `"get-vendors-and-settings"`)
 - **File names**: kebab-case (`settings.js`, `generate_neuropanther_chat_license_key.py`)
-- **HTML files**: lowercase, descriptive (`about.html`, `splash.html`, `license.html`)
+- **HTML files**: lowercase, descriptive (`about.html`, `splash.html`, `license_dialog.html`)
 
 ## IPC Architecture Pattern
 

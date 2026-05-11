@@ -8,7 +8,7 @@ NeuroPanther-Chat/
 ├── settings.html                    # Settings window — vendor/model/API key UI
 ├── settings.js                      # Settings window renderer logic
 ├── about.html                       # About dialog
-├── license.html                     # License display
+├── license_dialog.html                     # License display
 ├── splash.html                      # Splash/loading screen
 ├── config.json                      # Vendor/model/URL configuration (data-driven)
 ├── package.json                     # npm config, electron-builder config, dependencies
