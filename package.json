@@ -38,7 +38,7 @@
           "ext": "chat",
           "name": "NeuroPanther Chat",
           "role": "Editor",
-          "icon": "chatdoc_icon.icns"
+          "icon": "doc_icon.icns"
         }
       ]
     },
@@ -49,13 +49,20 @@
           "ext": "chat",
           "name": "NeuroPanther Chat",
           "role": "Editor",
-          "icon": "chatdoc_icon.ico"
+          "icon": "doc_icon.ico"
         }
       ]
     },
     "linux": {
       "icon": "app_icon_256.png",
       "category": "Network",
+      "fileAssociations": [
+        {
+          "ext": "chat",
+          "name": "NeuroPanther Chat",
+          "icon": "doc_icon_256.png"
+        }
+      ],
       "target": [
         {
           "target": "deb",
