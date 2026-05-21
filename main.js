@@ -257,8 +257,8 @@ let licenseWin;
 function openLicense() {
   if (licenseWin) return licenseWin.focus();
   licenseWin = new BrowserWindow({
-    width: 360,
-    height: 260,
+    width: 400,
+    height: 290,
     resizable: false,
     parent: mainWin,
     modal: true,
@@ -348,7 +348,7 @@ body{font-family:-apple-system,sans-serif;max-width:800px;margin:40px auto;paddi
 .assistant p{margin:0 0 8px;}
 .assistant p:last-child{margin-bottom:0;}
 .assistant pre{background:#e8e8e8;border-radius:8px;padding:12px;overflow-x:auto;margin:8px 0;}
-.assistant code{font-family:'JetBrains Mono NL',monospace;font-size:13px;background:#e8e8e8;padding:1px 4px;border-radius:3px;}
+.assistant code{font-family:'JetBrains Mono',monospace;font-size:13px;background:#e8e8e8;padding:1px 4px;border-radius:3px;}
 .assistant pre code{background:none;padding:0;}
 img{border-radius:8px;display:block;margin:6px 0;}
 </style></head><body>${body}</body></html>`;

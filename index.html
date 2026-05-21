@@ -5,7 +5,6 @@
   <meta name="disable-code-actions" content="true">
   <title>NeuroPanther Chat</title>
   <link rel="stylesheet" href="node_modules/highlight.js/styles/github-dark.css" media="screen">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono+NL:ital,wght@0,100..800;1,100..800&display=swap">
   <style id="theme">
     :root {
       --accent: #5cda05;
@@ -16,6 +15,37 @@
     }
   </style>
   <style>
+    @font-face {
+      font-family: 'JetBrains Mono';
+      src: url('fonts/JetBrainsMono-Regular.woff2') format('woff2');
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: 'JetBrains Mono';
+      src: url('fonts/JetBrainsMono-Italic.woff2') format('woff2');
+      font-weight: 400;
+      font-style: italic;
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: 'JetBrains Mono';
+      src: url('fonts/JetBrainsMono-Bold.woff2') format('woff2');
+      font-weight: 700;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: 'JetBrains Mono';
+      src: url('fonts/JetBrainsMono-BoldItalic.woff2') format('woff2');
+      font-weight: 700;
+      font-style: italic;
+      font-display: swap;
+    }
     @media print {
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body { background: #fff; color: #000; font-family: -apple-system, sans-serif; height: auto !important; overflow: visible !important; }
@@ -61,14 +91,14 @@
     .msg.user      { align-self: flex-end; background: var(--user-bubble); color: var(--user-bubble-text); white-space: pre-wrap; }
     .msg.assistant { align-self: flex-start; background: var(--ai-bubble); }
     .msg.error     { align-self: flex-start; background: #5a1a1a; color: #ff6b6b; }
-    .msg.info      { align-self: center; background: transparent; color: #888; font-size: 12px; padding: 4px 0; }
+    .msg.info      { align-self: center; background: transparent; color: #888; font-size: 14px; padding: 4px 0; }
 
     .msg.assistant p { margin: 0 0 8px; }
     .msg.assistant p:last-child { margin-bottom: 0; }
     .msg.assistant ul, .msg.assistant ol { margin: 0 0 8px 20px; }
     .msg.assistant li { margin-bottom: 2px; }
     .msg.assistant h1, .msg.assistant h2, .msg.assistant h3 { margin: 8px 0 4px; }
-    .msg.assistant code { background: #1a1a1a; padding: 1px 5px; border-radius: 4px; font-size: 13px; font-family: 'JetBrains Mono NL', monospace; }
+    .msg.assistant code { background: #1a1a1a; padding: 1px 5px; border-radius: 4px; font-size: 14px; font-family: 'JetBrains Mono', monospace; }
     .msg.assistant pre { 
       margin: 8px 0; 
       border-radius: 8px; 
@@ -88,8 +118,8 @@
     .msg.assistant pre code { 
       background: none; 
       padding: 0; 
-      font-size: 13px; 
-      font-family: 'JetBrains Mono NL', monospace; 
+      font-size: 14px;
+      font-family: 'JetBrains Mono', monospace;
       -webkit-user-select: text; 
       user-select: text;
     }
@@ -143,7 +173,7 @@
     }
     .link-preview-loading {
       color: #aaa;
-      font-size: 12px;
+      font-size: 14px;
       padding: 20px;
     }
 
@@ -199,7 +229,7 @@
       background: #3a3a3c;
       border-radius: 8px;
       padding: 4px 8px;
-      font-size: 12px;
+      font-size: 14px;
       color: #ccc;
       max-width: 200px;
     }
@@ -227,14 +257,14 @@
       border-top: 1px solid #333;
     }
     #translate-row.visible { display: flex; }
-    #translate-row label { font-size: 12px; color: #aaa; flex-shrink: 0; }
+    #translate-row label { font-size: 14px; color: #aaa; flex-shrink: 0; }
     #translate-row select {
       background: #3a3a3c;
       color: #e0e0e0;
       border: none;
       border-radius: 8px;
       padding: 5px 8px;
-      font-size: 12px;
+      font-size: 14px;
       outline: none;
       cursor: pointer;
     }
@@ -246,7 +276,7 @@
       padding: 6px 16px;
       background: #252525;
       border-top: 1px solid #333;
-      font-size: 12px;
+      font-size: 14px;
       color: #aaa;
     }
     #agent-row.visible { display: flex; }
@@ -261,19 +291,19 @@
       border-radius: 12px;
       padding: 10px 14px;
       max-width: 75%;
-      font-size: 13px;
+      font-size: 14px;
     }
     .tool-card.denied { background: #2a1a1a; border-color: #4a2a2a; }
     .tool-card.executed { background: #1a1a2a; border-color: #2a2a4a; }
     .tool-card-header { font-weight: 600; color: #4ade80; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
     .tool-card.denied .tool-card-header { color: #f87171; }
     .tool-card.executed .tool-card-header { color: #60a5fa; }
-    .tool-card-args { font-family: 'JetBrains Mono NL', monospace; font-size: 11px; color: #aaa; background: #111; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; white-space: pre-wrap; word-break: break-all; max-height: 120px; overflow-y: auto; }
-    .tool-card-result { font-family: 'JetBrains Mono NL', monospace; font-size: 11px; color: #ccc; background: #111; border-radius: 6px; padding: 6px 8px; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; }
+    .tool-card-args { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #aaa; background: #111; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; white-space: pre-wrap; word-break: break-all; max-height: 120px; overflow-y: auto; }
+    .tool-card-result { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #ccc; background: #111; border-radius: 6px; padding: 6px 8px; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; }
     .tool-card-btns { display: flex; gap: 8px; margin-top: 8px; }
-    .tool-allow-btn { background: #166534; border: none; color: #4ade80; border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
+    .tool-allow-btn { background: #166534; border: none; color: #4ade80; border-radius: 6px; padding: 4px 12px; font-size: 14px; cursor: pointer; }
     .tool-allow-btn:hover { background: #15803d; }
-    .tool-deny-btn  { background: #7f1d1d; border: none; color: #f87171; border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
+    .tool-deny-btn  { background: #7f1d1d; border: none; color: #f87171; border-radius: 6px; padding: 4px 12px; font-size: 14px; cursor: pointer; }
     .tool-deny-btn:hover  { background: #991b1b; }
 
     @keyframes pulse-dim {
@@ -297,7 +327,7 @@
       vertical-align: middle;
       margin-left: 10px;
       color: #aaa;
-      font-size: 13px;
+      font-size: 14px;
       font-style: italic;
     }
 
@@ -309,7 +339,7 @@
       border-radius: 10px;
       padding: 8px 12px;
       color: #b7d7b7;
-      font-size: 12px;
+      font-size: 14px;
     }
     .agent-activity.error { background: #2a1a1a; border-color: #4a2a2a; color: #fca5a5; }
     .agent-activity-header { font-weight: 600; color: var(--accent); margin-bottom: 4px; }
@@ -320,7 +350,7 @@
       background: #111;
       border-radius: 6px;
       padding: 6px 8px;
-      font-family: 'JetBrains Mono NL', monospace;
+      font-family: 'JetBrains Mono', monospace;
       font-size: 11px;
       white-space: pre-wrap;
       word-break: break-word;
@@ -338,13 +368,13 @@
       padding: 6px 10px;
       background: #232323;
       color: #aaa;
-      font-size: 12px;
+      font-size: 14px;
       font-weight: 600;
     }
     .think-block-body {
       padding: 8px 10px;
       color: #bdbdbd;
-      font-size: 13px;
+      font-size: 14px;
       font-style: italic;
     }
     .think-block-body > :first-child { margin-top: 0; }
@@ -398,7 +428,7 @@
       border: none;
       border-radius: 8px;
       padding: 6px 8px;
-      font-size: 12px;
+      font-size: 14px;
       outline: none;
       cursor: pointer;
       flex-shrink: 0;
@@ -447,7 +477,7 @@
       background: #252525;
       border-right: 1px solid #333;
       cursor: pointer;
-      font-size: 12px;
+      font-size: 14px;
       color: #888;
       white-space: nowrap;
       overflow: hidden;
@@ -467,7 +497,7 @@
     }
     .tab-title-input {
       flex: 1;
-      font-size: 12px;
+      font-size: 14px;
       background: #3a3a3c;
       color: #e0e0e0;
       border: 1px solid #0a84ff;
@@ -486,7 +516,7 @@
       background: none;
       color: #666;
       cursor: pointer;
-      font-size: 12px;
+      font-size: 14px;
       line-height: 1;
       display: flex;
       align-items: center;

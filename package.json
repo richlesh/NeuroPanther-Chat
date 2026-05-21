@@ -26,6 +26,7 @@
       "*.png",
       "*.icns",
       "*.ico",
+      "fonts/**",
       "node_modules/**"
     ],
     "mac": {
