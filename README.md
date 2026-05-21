@@ -11,60 +11,78 @@ A cross-platform desktop chat/agent application built with Electron that support
 ### Multi-Vendor Support
 Connect to any of the following AI providers:
 - **OpenAI** — GPT-4o, GPT-4o Mini, GPT-4 Turbo, GPT-3.5 Turbo
-- **Anthropic** — Claude Opus, Claude Sonnet, Claude Haiku
-- **Google** — Gemini 2.0 Flash, Gemini 1.5 Pro, Gemini 1.5 Flash
+- **Anthropic** — Claude Opus 4.5, Claude Sonnet 4.5, Claude Haiku 4.5
+- **Google** — Gemini 2.0 Flash, Gemini 2.0 Flash Lite, Gemini 1.5 Pro, Gemini 1.5 Flash
 - **DeepSeek** — DeepSeek Chat, DeepSeek Reasoner
 - **Alibaba** — Qwen Max, Qwen Plus, Qwen Turbo
 - **Meta** — Llama 3.3 70B, Llama 3.1 8B
+- **Ollama** — Local models (requires Ollama installed and running)
 
 ### Chat
 - Scrolling chat history with user and assistant message bubbles
 - Full **Markdown rendering** with syntax-highlighted code blocks
 - Conversation history maintained across turns for context-aware responses
-- Submit with **Enter** key or the return button; **Shift+Enter** for new lines
+- Submit with **Enter** key or the send button; **Shift+Enter** for new lines
 - Auto-growing text input
 
-### Agentic Capability for Select Models
-- Certain AI models possess advanced agentic behaviors, allowing them to perform tasks autonomously.
-- Ideal for use cases that require proactive AI intervention and task management.
+### Agentic Capability
+- Agent Mode allows supported models to perform multi-step tasks autonomously
+- Tools include file read/write, directory listing, file search, shell commands, and web search
+- Tool calls are shown for approval before execution
+- Configurable working directory restricts file access for safety
+- Web search powered by Brave Search API
 
-### Language Translation Capability
-- Seamlessly translate text across multiple languages within chat conversations.
-- Supports real-time translation for more than 100 languages, enabling broader communication and understanding.
+### Language Translation
+- Seamlessly translate AI responses into a selected language
+- Supports real-time translation for more than 100 languages
 
 ### Web Search using Brave API
-- Integrated web search functionality through the Brave Search API.
-- Allows users to retrieve real-time web data directly in their chat conversations.
-- Provides an extensive search capability to enhance informational queries and responses.
+- Integrated web search functionality through the Brave Search API in Agent Mode
+- Allows the AI to retrieve real-time web data during agentic workflows
 
-### Image Upload
-- Attach an image to any message using the image button
+### File Attachments
+- Attach text-based files (source code, Markdown, JSON, CSV, logs, etc.) to provide context
+- Drag and drop files onto the chat area
+- Maximum attachment size: 50 MB
+- Attached files appear as removable badges above the input area
+
+### Image Upload and Analysis
+- Attach an image to any message using the attachment button
 - Image is displayed in the chat window before sending
 - The AI analyses the image along with your text prompt
 - Supported by OpenAI and Anthropic vendors
 
 ### Image Generation
 - Toggle **Generate Image** mode with the star button
-- Describe an image and OpenAI/gpt-image-1 or Google/imagen-4.0-generate-001
-- will generate a 1024×1024 image
+- Supported vendors: **OpenAI** (gpt-image-1), **Google** (Imagen 4.0), **Stability AI**, **Leonardo**, **Ideogram**
 - Generated images are displayed inline in the chat
 - Download generated images via the download button or right-click menu
-- OpenAI/gpt-image-1 allows for fine-tuning of generated images or uploaded images
+- Follow-up image refinement supported for select providers
 
 ### Tabbed Windows
 - Run multiple independent chats simultaneously using tabs
 - Open a new tab with the **+** button or **Cmd/Ctrl+T**
+- Open a new window with **Cmd/Ctrl+N**
 - Close a tab with **Cmd/Ctrl+W** or the × button on the tab
 - Double-click a tab title to rename it
 - Drag tabs between windows to reorganize chats
 - Each tab maintains its own conversation history, vendor, and model selection
 - Unsaved tabs are marked with a **•** indicator; you are prompted to save before closing
 
+### Saving, Loading, and Exporting
+- Save conversations as `.chat` files (**Cmd/Ctrl+S**)
+- Load saved chats (**Cmd/Ctrl+O**) or drag `.chat` files onto the window
+- Export chats as **HTML**, **Markdown**, or **PDF**
+- Print chats with **Cmd/Ctrl+P**
+
 ### Per-Message Actions
 Each AI response includes:
 - **Copy** — copies the response text to the clipboard
 - **Speak** — reads the response aloud using text-to-speech; click again to stop
-- **Voice Input** - allows you to send voice input to the AI model (requires OpenAI API key)
+
+### Voice Input
+- Record speech and transcribe with OpenAI Whisper (requires OpenAI API key)
+- Transcribed text is inserted into the message box for review before sending
 
 ### Image Actions
 Click any image to enlarge it in the chat window.
@@ -74,10 +92,15 @@ Right-click any image in the chat to:
 - **Save Image As…** — saves the image to disk via a native save dialog
 - **Zoom** — enlarges the image to fit the chat window
 
+### Display and Color Customization
+- Customize button highlight color, user bubble color, and AI bubble color
+- Toggle model activity display
+
 ### Settings
 - Select your **vendor** and **model** from dropdown menus
 - Each vendor stores its own **API key** separately
 - A direct link to each vendor's API key page is shown for convenience
+- Configure Agent Mode working directory and Brave Search API key
 - Settings are saved to `~/.neuropanther-chat-settings.json`
 
 ### Vendor Configuration
@@ -134,17 +157,22 @@ Output files are placed in the `dist/` folder.
 | Anthropic | https://console.anthropic.com/settings/keys |
 | Google | https://aistudio.google.com/apikey |
 | DeepSeek | https://platform.deepseek.com/api_keys |
-| Alibaba | https://bailian.console.aliyun.com |
-| Meta | https://llama.developer.meta.com |
-| Brave | https://brave.com/search/api/ |
+| Alibaba | https://www.alibabacloud.com/help/en/model-studio/get-api-key |
+| Meta | https://llama.developer.meta.com/docs/api-keys |
+| Stability AI | https://platform.stability.ai/account/keys |
+| Leonardo | https://app.leonardo.ai/api-access |
+| Ideogram | https://ideogram.ai/manage-api |
+| Brave Search | https://api.search.brave.com |
+| Ollama | Local — no API key required |
 
 ---
 
 ## Tech Stack
 
 - [Electron](https://www.electronjs.org)
-- [OpenAI Node SDK](https://github.com/openai/openai-node)
-- [Anthropic Node SDK](https://github.com/anthropics/anthropic-sdk-node)
+- [OpenAI Node SDK](https://github.com/openai/openai-node) — OpenAI, DeepSeek, Alibaba, Meta, Google text, Ollama
+- [Anthropic Node SDK](https://github.com/anthropics/anthropic-sdk-node) — Anthropic Claude models
+- [Google GenAI SDK](https://github.com/googleapis/google-cloud-node) — Google Imagen image generation
 - [marked](https://marked.js.org) — Markdown rendering
 - [highlight.js](https://highlightjs.org) — Code syntax highlighting
 
