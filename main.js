@@ -7,7 +7,7 @@ const https = require("https");
 const { spawn } = require("child_process");
 const nodeCrypto = require("crypto");
 const { load, save, VENDORS } = require("./settings");
-const LICENSE_SALT = "NeuroPanther-Chat-2026";
+const { LICENSE_SALT } = require("./license.js");
 
 function openExternal(url) {
   if (process.platform === "linux") {
