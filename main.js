@@ -7,7 +7,7 @@ const https = require("https");
 const { spawn } = require("child_process");
 const nodeCrypto = require("crypto");
 const { load, save, VENDORS } = require("./settings");
-const { LICENSE_SALT } = require("./license.js");
+const { expectedLicenseKey, isValidLicense } = require("./utilities.js");
 
 function openExternal(url) {
   if (process.platform === "linux") {
@@ -16,17 +16,6 @@ function openExternal(url) {
   } else {
     shell.openExternal(url);
   }
-}
-
-function expectedLicenseKey(userName) {
-  const hmac = nodeCrypto.createHmac("sha256", LICENSE_SALT);
-  hmac.update(userName.toLowerCase().trim());
-  return hmac.digest("hex").slice(0, 16).toUpperCase();
-}
-
-function isValidLicense(key, userName) {
-  if (!key || !userName) return false;
-  return key.toUpperCase() === expectedLicenseKey(userName);
 }
 
 const appIcon = nativeImage.createFromPath(path.join(__dirname, "app_icon.icns"));
@@ -105,7 +94,7 @@ function showAbout() {
   if (aboutWin && !aboutWin.isDestroyed()) return aboutWin.focus();
   aboutWin = new BrowserWindow({
     width: 320,
-    height: 420,
+    height: 440,
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -288,7 +277,7 @@ function openSettings() {
   if (settingsWin) return settingsWin.focus();
   settingsWin = new BrowserWindow({
     width: 840,
-    height: 480,
+    height: 560,
     resizable: false,
     parent: mainWin,
     modal: true,

@@ -19,7 +19,9 @@
       break-inside: avoid;
       margin-bottom: 8px;
     }
-    
+
+    h1 { font-size: 16px; font-weight: 600; margin-top: 16px; margin-bottom: 16px; }
+
     .buttons-row {
       column-span: all;
       margin-top: 8px;
@@ -52,7 +54,7 @@
     #save-btn   { background: #0a84ff; color: #fff; }
     #api-key-link { font-size: 14px; color: #4da3ff; text-decoration: none; margin-top: 4px; display: inline-block; }
     #api-key-link:hover { text-decoration: underline; }
-    .section-title { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; padding-top: 12px; border-top: 1px solid #333; }
+    .section-title { font-size: 14px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; padding-top: 12px; padding-bottom: 12px; }
     .dir-row { display: flex; gap: 8px; align-items: center; }
     .dir-row input { flex: 1; }
     .dir-btn { padding: 8px 12px; border-radius: 8px; border: none; background: #3a3a3c; color: #e0e0e0; cursor: pointer; font-size: 14px; white-space: nowrap; flex-shrink: 0; }
@@ -61,7 +63,7 @@
   </style>
 </head>
 <body>
-  <div class="section-title" style="border-top:none;margin:0;padding:0;">LLM Settings</div>
+  <h1>LLM Settings</h1>
   <div>
     <label>Vendor</label>
     <select id="vendor"></select>
@@ -78,7 +80,7 @@
   </div>
 
   <!-- Agent Settings -->
-  <div class="section-title">Agent Settings</div>
+  <h1>Agent Settings</h1>
   <div>
     <label>Working Directory</label>
     <div class="dir-row">
@@ -90,16 +92,16 @@
     <label>Brave Search API Key <a id="brave-key-link" href="https://api.search.brave.com" style="font-size:11px;color:#4da3ff;text-decoration:none;margin-left:6px;">Get API key…</a></label>
     <input id="brave-api-key" type="password" placeholder="Enter Brave Search API key…">
   </div>
-<div style="break-before:column;">
+<h1 style="break-before:column;">
   <!-- Translation Settings -->
-  <div class="section-title">Translation Settings</div>
+  <h1>Translation Settings</h1>
   <div>
     <label>Default Response Language</label>
     <select id="default-to-lang"></select>
   </div>
 
   <!-- Display Settings -->
-  <div class="section-title">Display Settings</div>
+  <h1>Display Settings</h1>
   <div style="display:flex;align-items:center;gap:8px;">
     <input type="checkbox" id="display-model-activity" style="width:auto;margin:0;">
     <label for="display-model-activity" style="margin:0;cursor:pointer;">Display Model Activity</label>
