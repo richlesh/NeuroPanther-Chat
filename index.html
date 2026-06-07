@@ -617,6 +617,9 @@
     const { marked } = require("marked");
     const hljs = require("highlight.js");
 
+    // Pre-warm speech synthesis voices (loads asynchronously on Linux)
+    speechSynthesis.getVoices();
+
     // Remove Chromium code action elements
     const observer = new MutationObserver(() => {
       document.querySelectorAll('[class*="code-action"], code-action, code-action-button').forEach(el => el.remove());
@@ -1871,10 +1874,6 @@
         if (speechSynthesis.speaking) {
           speechSynthesis.cancel();
           speak.classList.remove("speaking");
-          return;
-        }
-        if (speechSynthesis.getVoices().length === 0) {
-          alert("No speech voices available. On Linux, install speech-dispatcher and espeak-ng:\n\nsudo apt install speech-dispatcher espeak-ng");
           return;
         }
         const utter = new SpeechSynthesisUtterance(plainText);
