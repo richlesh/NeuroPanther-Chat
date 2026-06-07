@@ -1172,6 +1172,11 @@ function showSplash(nagOnly) {
 // Disable Chromium's code block actions menu
 app.commandLine.appendSwitch('disable-features', 'ContextMenuEnableCodeActions');
 
+// Enable speech-dispatcher integration on Linux for TTS
+if (process.platform === "linux") {
+  app.commandLine.appendSwitch("enable-speech-dispatcher");
+}
+
 app.whenReady().then(() => {
   // Intercept every window's close to check for unsaved tabs
   app.on("browser-window-created", (_e, win) => {

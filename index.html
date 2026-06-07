@@ -1873,9 +1873,14 @@
           speak.classList.remove("speaking");
           return;
         }
+        if (speechSynthesis.getVoices().length === 0) {
+          alert("No speech voices available. On Linux, install speech-dispatcher and espeak-ng:\n\nsudo apt install speech-dispatcher espeak-ng");
+          return;
+        }
         const utter = new SpeechSynthesisUtterance(plainText);
         utter.lang = LANG_TAGS[toLangSel.value] || "en";
         utter.onend = () => speak.classList.remove("speaking");
+        utter.onerror = () => speak.classList.remove("speaking");
         speak.classList.add("speaking");
         speechSynthesis.speak(utter);
       });
