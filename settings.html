@@ -100,6 +100,13 @@
     <select id="default-to-lang"></select>
   </div>
 
+  <!-- Speech Settings -->
+  <h1>Speech Settings</h1>
+  <div>
+    <label>TTS Voice</label>
+    <select id="tts-voice"></select>
+  </div>
+
   <!-- Display Settings -->
   <h1>Display Settings</h1>
   <div style="display:flex;align-items:center;gap:8px;">
@@ -180,6 +187,22 @@
       toSel.value = current.defaultToLang || "English";
 
       document.getElementById("display-model-activity").checked = current.displayModelActivity !== false;
+
+      // Populate TTS voices
+      const ttsVoiceSel = document.getElementById("tts-voice");
+      function populateVoices() {
+        const voices = speechSynthesis.getVoices();
+        ttsVoiceSel.innerHTML = "<option value=\"\">System Default</option>";
+        voices.forEach(v => {
+          const opt = document.createElement("option");
+          opt.value = v.name;
+          opt.textContent = `${v.name} (${v.lang})`;
+          ttsVoiceSel.appendChild(opt);
+        });
+        if (current.ttsVoice) ttsVoiceSel.value = current.ttsVoice;
+      }
+      populateVoices();
+      speechSynthesis.onvoiceschanged = populateVoices;
     });
 
     function updateLink(vendor) {
@@ -258,6 +281,7 @@
         workingDir: document.getElementById("working-dir").value,
         defaultToLang:    document.getElementById("default-to-lang").value,
         displayModelActivity: document.getElementById("display-model-activity").checked,
+        ttsVoice:         document.getElementById("tts-voice").value,
         accentColor:      document.getElementById("accent-color").value,
         userBubbleColor:  document.getElementById("user-bubble-color").value,
         aiBubbleColor:    document.getElementById("ai-bubble-color").value

@@ -676,6 +676,7 @@
       "Ukrainian":"uk","Urdu":"ur","Vietnamese":"vi",
     };
     let defaultToLang   = "English";
+    let ttsVoice        = "";
     LANGUAGES.forEach(lang => {
       toLangSel.append(Object.assign(document.createElement("option"), { value: lang, textContent: lang }));
     });
@@ -1032,6 +1033,7 @@
 
       // load default languages
       defaultToLang   = settings.defaultToLang   || "English";
+      ttsVoice        = settings.ttsVoice        || "";
       toLangSel.value   = defaultToLang;
 
       displayModelActivity = settings.displayModelActivity !== false;
@@ -1878,6 +1880,10 @@
         }
         const utter = new SpeechSynthesisUtterance(plainText);
         utter.lang = LANG_TAGS[toLangSel.value] || "en";
+        if (ttsVoice) {
+          const v = speechSynthesis.getVoices().find(v => v.name === ttsVoice);
+          if (v) utter.voice = v;
+        }
         utter.onend = () => speak.classList.remove("speaking");
         utter.onerror = () => speak.classList.remove("speaking");
         speak.classList.add("speaking");
@@ -1956,6 +1962,7 @@
     ipcRenderer.on("settings-updated", () => {
       ipcRenderer.invoke("get-vendors-and-settings").then(({ settings }) => {
         defaultToLang   = settings.defaultToLang   || "English";
+        ttsVoice        = settings.ttsVoice        || "";
         displayModelActivity = settings.displayModelActivity !== false;
         if (settings.defaultModels) Object.assign(rememberedModel, settings.defaultModels);
         rememberedModel[settings.vendor] = settings.defaultModels?.[settings.vendor] || settings.model;
