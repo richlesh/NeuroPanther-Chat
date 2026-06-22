@@ -657,7 +657,18 @@ const ANTHROPIC_TOOLS = AGENT_TOOLS.map(t => ({
   input_schema: t.function.parameters
 }));
 
+const activeAborts = {}; // sid → AbortController
+
+ipcMain.on("cancel-stream", (_event, sid) => {
+  if (activeAborts[sid]) {
+    activeAborts[sid].abort();
+    delete activeAborts[sid];
+  }
+});
+
 ipcMain.on("chat-stream", async (event, { messages, vendor, model, agentMode, sid }) => {
+  const abortController = new AbortController();
+  activeAborts[sid] = abortController;
   checkMessageNag();
   const settings = load();
   const apiKey = settings.apiKeys?.[vendor] || "";
@@ -679,7 +690,7 @@ ipcMain.on("chat-stream", async (event, { messages, vendor, model, agentMode, si
         system: sysMsg?.content,
         messages: userMsgs,
         ...(tools ? { tools } : {})
-      });
+      }, { signal: abortController.signal });
       let fullText = "";
       for await (const chunk of stream) {
         if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
@@ -715,7 +726,7 @@ ipcMain.on("chat-stream", async (event, { messages, vendor, model, agentMode, si
         googleMessages[0] = { ...googleMessages[0], content: sysTxt + "\n\n" + googleMessages[0].content };
       }
       const client = new OpenAI({ apiKey, baseURL: VENDORS[vendor]?.baseURL });
-      const res = await client.chat.completions.create({ model, messages: googleMessages, ...(tools ? { tools, tool_choice: "auto" } : {}) });
+      const res = await client.chat.completions.create({ model, messages: googleMessages, ...(tools ? { tools, tool_choice: "auto" } : {}) }, { signal: abortController.signal });
       const choice = res.choices[0];
       if (choice.finish_reason === "tool_calls" && choice.message.tool_calls?.length) {
         event.sender.send("stream-tool-calls", sid, choice.message.tool_calls.map(tc => {
@@ -729,7 +740,7 @@ ipcMain.on("chat-stream", async (event, { messages, vendor, model, agentMode, si
       }
     } else {
       const client = new OpenAI({ apiKey, baseURL: VENDORS[vendor]?.baseURL });
-      const stream = await client.chat.completions.create({ model, messages, stream: true, ...(tools ? { tools, tool_choice: "auto" } : {}) });
+      const stream = await client.chat.completions.create({ model, messages, stream: true, ...(tools ? { tools, tool_choice: "auto" } : {}) }, { signal: abortController.signal });
       let fullText = "";
       const toolCallMap = {};
       for await (const chunk of stream) {
@@ -759,7 +770,13 @@ ipcMain.on("chat-stream", async (event, { messages, vendor, model, agentMode, si
       }
     }
   } catch (err) {
-    event.sender.send("stream-error", sid, err.message);
+    if (abortController.signal.aborted) {
+      event.sender.send("stream-error", sid, "cancelled");
+    } else {
+      event.sender.send("stream-error", sid, err.message);
+    }
+  } finally {
+    delete activeAborts[sid];
   }
 });
 

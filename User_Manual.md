@@ -1,6 +1,6 @@
 # NeuroPanther Chat User Manual
 
-**Version:** 1.4.0  
+**Version:** 1.5.0  
 **Product:** NeuroPanther Chat  
 **Author:** Richard Lesh / Glowing Cat Software
 

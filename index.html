@@ -5,6 +5,7 @@
   <meta name="disable-code-actions" content="true">
   <title>NeuroPanther Chat</title>
   <link rel="stylesheet" href="node_modules/highlight.js/styles/github-dark.css" media="screen">
+  <link rel="stylesheet" href="node_modules/katex/dist/katex.min.css">
   <style id="theme">
     :root {
       --accent: #5cda05;
@@ -330,6 +331,27 @@
       font-size: 14px;
       font-style: italic;
     }
+    .thinking-cancel {
+      display: inline-block;
+      vertical-align: middle;
+      margin-left: auto;
+      padding: 2px 6px;
+      background: none;
+      border: none;
+      color: #e74c3c;
+      font-size: 18px;
+      font-weight: bold;
+      cursor: pointer;
+      line-height: 1;
+      border-radius: 4px;
+    }
+    .thinking-cancel:hover {
+      background: rgba(231, 76, 60, 0.15);
+    }
+    .thinking-indicator {
+      display: flex !important;
+      align-items: center;
+    }
 
     .agent-activity {
       align-self: flex-start;
@@ -626,7 +648,35 @@
     });
     observer.observe(document.body, { childList: true, subtree: true });
 
+    const katex = require("katex");
+
     marked.use({
+      extensions: [
+        {
+          name: "mathBlock",
+          level: "block",
+          start(src) { return src.indexOf("$$"); },
+          tokenizer(src) {
+            const match = src.match(/^\$\$([\s\S]+?)\$\$/);
+            if (match) return { type: "mathBlock", raw: match[0], text: match[1].trim() };
+          },
+          renderer(token) {
+            return katex.renderToString(token.text, { displayMode: true, throwOnError: false });
+          }
+        },
+        {
+          name: "mathInline",
+          level: "inline",
+          start(src) { return src.indexOf("$"); },
+          tokenizer(src) {
+            const match = src.match(/^\$([^\$\n]+?)\$/);
+            if (match) return { type: "mathInline", raw: match[0], text: match[1] };
+          },
+          renderer(token) {
+            return katex.renderToString(token.text, { displayMode: false, throwOnError: false });
+          }
+        }
+      ],
       renderer: (() => {
         const r = new marked.Renderer();
         r.code = ({ text, lang }) => {
@@ -1563,7 +1613,10 @@
           await runStreaming(tab, tabId, vendor, model, thinking);
         }
         } catch (err) {
-          if (!tab.agentMode) {
+          if (err.message === "cancelled") {
+            thinking.remove();
+            tab.history.pop();
+          } else if (!tab.agentMode) {
             thinking.style.display = "";
             thinking.classList.remove("thinking-indicator");
             thinking.className = "msg error";
@@ -1598,6 +1651,16 @@
         const img = document.createElement("img");
         img.src = "app_icon.png";
         div.appendChild(img);
+        const thinkText = document.createElement("span");
+        thinkText.className = "thinking-text";
+        thinkText.textContent = "Thinking...";
+        div.appendChild(thinkText);
+        const cancelBtn = document.createElement("button");
+        cancelBtn.className = "thinking-cancel";
+        cancelBtn.title = "Cancel request";
+        cancelBtn.textContent = "✕";
+        cancelBtn.addEventListener("click", () => cancelCurrentStream(tabId));
+        div.appendChild(cancelBtn);
       } else {
         div.textContent = text;
       }
@@ -1607,16 +1670,28 @@
     }
 
     // ── Streaming ────────────────────────────────────────────────────────────────
+    const activeStreams = {}; // tabId → sid
+
+    function cancelCurrentStream(tabId) {
+      const sid = activeStreams[tabId];
+      if (sid) {
+        ipcRenderer.send("cancel-stream", sid);
+        delete activeStreams[tabId];
+      }
+    }
+
     function runStreaming(tab, tabId, vendor, model, thinkingEl) {
       return new Promise((resolve, reject) => {
         let reply = "";
         const sid = "s" + Date.now() + Math.random();
+        activeStreams[tabId] = sid;
 
         const onChunk = (_e, id, chunk) => { if (id !== sid) return; reply += chunk; renderAssistantContent(thinkingEl, reply, vendor); if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight; };
         const onDone  = (_e, id, full)  => { if (id !== sid) return; cleanup(); finishAssistant(tab, tabId, thinkingEl, full, vendor); resolve(); };
         const onError = (_e, id, msg)   => { if (id !== sid) return; cleanup(); reject(new Error(msg)); };
 
         function cleanup() {
+          delete activeStreams[tabId];
           ipcRenderer.removeListener("stream-chunk", onChunk);
           ipcRenderer.removeListener("stream-done",  onDone);
           ipcRenderer.removeListener("stream-error", onError);
@@ -1725,6 +1800,7 @@
         const toolCalls = await new Promise((resolve, reject) => {
           let reply = "";
           const sid = "s" + Date.now() + Math.random();
+          activeStreams[tabId] = sid;
 
           const onChunk = (_e, id, chunk) => {
             if (id !== sid) return;
@@ -1750,6 +1826,7 @@
           };
 
           function cleanup() {
+            delete activeStreams[tabId];
             ipcRenderer.removeListener("stream-chunk",      onChunk);
             ipcRenderer.removeListener("stream-done",       onDone);
             ipcRenderer.removeListener("stream-error",      onError);

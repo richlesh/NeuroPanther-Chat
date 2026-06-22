@@ -1,4 +1,4 @@
-# NeuroPanther Chat v1.4.0
+# NeuroPanther Chat v1.5.0
 
 A cross-platform desktop chat/agent application built with Electron that supports multiple AI vendors and models.
 
@@ -21,6 +21,7 @@ Connect to any of the following AI providers:
 ### Chat
 - Scrolling chat history with user and assistant message bubbles
 - Full **Markdown rendering** with syntax-highlighted code blocks
+- **LaTeX math rendering** for inline (`$...$`) and display (`$$...$$`) equations
 - Conversation history maintained across turns for context-aware responses
 - Submit with **Enter** key or the send button; **Shift+Enter** for new lines
 - Auto-growing text input
@@ -174,6 +175,7 @@ Output files are placed in the `dist/` folder.
 - [Anthropic Node SDK](https://github.com/anthropics/anthropic-sdk-node) — Anthropic Claude models
 - [Google GenAI SDK](https://github.com/googleapis/google-cloud-node) — Google Imagen image generation
 - [marked](https://marked.js.org) — Markdown rendering
+- [KaTeX](https://katex.org) — LaTeX math rendering
 - [highlight.js](https://highlightjs.org) — Code syntax highlighting
 
 ---
