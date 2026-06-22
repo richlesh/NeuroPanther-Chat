@@ -33,6 +33,11 @@ Connect to any of the following AI providers:
 - Configurable working directory restricts file access for safety
 - Web search powered by Brave Search API
 
+### Math Equations
+- Render LaTeX math equations inline using `$...$` and in display blocks using `$$...$$`
+- Powered by KaTeX for fast, high-quality typesetting
+- Ideal for science, engineering, and academic discussions
+
 ### Language Translation
 - Seamlessly translate AI responses into a selected language
 - Supports real-time translation for more than 100 languages
