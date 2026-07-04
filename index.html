@@ -13,6 +13,7 @@
       --user-bubble: #5cda05;
       --user-bubble-text: #fff;
       --ai-bubble: #2c2c2e;
+      --ai-bubble-text: #fff;
     }
   </style>
   <style>
@@ -95,7 +96,7 @@
       word-break: break-word;
     }
     .msg.user      { align-self: flex-end; background: var(--user-bubble); color: var(--user-bubble-text); white-space: pre-wrap; }
-    .msg.assistant { align-self: flex-start; background: var(--ai-bubble); }
+    .msg.assistant { align-self: flex-start; background: var(--ai-bubble); color: var(--ai-bubble-text); }
     .msg.error     { align-self: flex-start; background: #5a1a1a; color: #ff6b6b; }
     .msg.info      { align-self: center; background: transparent; color: #888; font-size: 14px; padding: 4px 0; }
 
@@ -104,7 +105,7 @@
     .msg.assistant ul, .msg.assistant ol { margin: 0 0 8px 20px; }
     .msg.assistant li { margin-bottom: 2px; }
     .msg.assistant h1, .msg.assistant h2, .msg.assistant h3 { margin: 8px 0 4px; }
-    .msg.assistant code { background: #1a1a1a; padding: 1px 5px; border-radius: 4px; font-size: 14px; font-family: 'JetBrains Mono', monospace; }
+    .msg.assistant code { background: var(--ai-bubble); padding: 1px 5px; border-radius: 4px; font-size: 14px; font-family: 'JetBrains Mono', monospace; }
     .msg.assistant pre { 
       margin: 8px 0; 
       border-radius: 8px; 
@@ -2061,12 +2062,14 @@
       const aiBubble   = settings.aiBubbleColor   || "#2c2c2e";
       const accentDark = shadeColor(accent, -15);
       const userText   = contrastColor(userBubble);
+      const aiText     = contrastColor(aiBubble);
       document.getElementById("theme").textContent = `:root {
         --accent: ${accent};
         --accent-dark: ${accentDark};
         --user-bubble: ${userBubble};
         --user-bubble-text: ${userText};
         --ai-bubble: ${aiBubble};
+        --ai-bubble-text: ${aiText};
       }`;
     }
 
@@ -2080,8 +2083,12 @@
 
     function contrastColor(hex) {
       const n = parseInt(hex.slice(1), 16);
-      const r = (n >> 16) & 0xff, g = (n >> 8) & 0xff, b = n & 0xff;
-      return (0.299 * r + 0.587 * g + 0.114 * b) > 128 ? "#000" : "#fff";
+      const r = ((n >> 16) & 0xff) / 255;
+      const g = ((n >> 8) & 0xff) / 255;
+      const b = (n & 0xff) / 255;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      const lightness = (max + min) / 2;
+      return lightness >= 0.65 ? "#000" : "#fff";
     }
 
     ipcRenderer.on("close-tab", () => { if (activeTabId) closeTab(activeTabId); });
