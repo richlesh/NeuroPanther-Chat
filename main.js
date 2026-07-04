@@ -686,7 +686,7 @@ ipcMain.on("chat-stream", async (event, { messages, vendor, model, agentMode, si
       const sysMsg = messages.find(m => m.role === "system");
       const userMsgs = messages.filter(m => m.role !== "system");
       const stream = await client.messages.stream({
-        model, max_tokens: 8096,
+        model, max_tokens: 128000,
         system: sysMsg?.content,
         messages: userMsgs,
         ...(tools ? { tools } : {})
@@ -817,7 +817,7 @@ ipcMain.handle("chat", async (_event, { messages, vendor: vendorOverride, model:
     const client = new Anthropic({ apiKey });
     const res = await client.messages.create({
       model,
-      max_tokens: 4096,
+      max_tokens: 128000,
       messages
     });
     return res.content[0].text;
@@ -873,7 +873,7 @@ ipcMain.handle("chat-with-image", async (_event, { tempPath, mediaType, text, ve
     const client = new Anthropic({ apiKey });
     const res = await client.messages.create({
       model,
-      max_tokens: 4096,
+      max_tokens: 128000,
       messages: [{
         role: "user",
         content: [
