@@ -78,6 +78,35 @@
     <a id="api-key-link" href="#" target="_blank">Get API key…</a>
     <span id="api-key-note" style="font-size: 11px; color: #888; margin-left: 6px; display: none;">(only required for cloud models)</span>
   </div>
+  <div id="microsoft-section" style="display:none;">
+    <label>API Key</label>
+    <input id="microsoft-api-key" type="password" placeholder="Enter Azure OpenAI API key…">
+    <label style="margin-top:8px;">Endpoint URL</label>
+    <input id="microsoft-endpoint" type="text" placeholder="https://your-resource.openai.azure.com">
+    <a id="microsoft-key-link" href="#" target="_blank" style="font-size:14px;color:#4da3ff;text-decoration:none;margin-top:4px;display:inline-block;">Get Azure OpenAI credentials…</a>
+  </div>
+  <div id="amazon-section" style="display:none;">
+    <label>AWS Access Key ID</label>
+    <input id="amazon-access-key" type="password" placeholder="Enter AWS Access Key ID…">
+    <label style="margin-top:8px;">AWS Secret Access Key</label>
+    <input id="amazon-secret-key" type="password" placeholder="Enter AWS Secret Access Key…">
+    <label style="margin-top:8px;">AWS Region</label>
+    <input id="amazon-region" type="text" placeholder="us-east-1">
+    <a id="amazon-key-link" href="#" target="_blank" style="font-size:14px;color:#4da3ff;text-decoration:none;margin-top:4px;display:inline-block;">Get AWS credentials…</a>
+  </div>
+  <div id="ibm-section" style="display:none;">
+    <label>IBM Cloud API Key</label>
+    <input id="ibm-api-key" type="password" placeholder="Enter IBM Cloud API key…">
+    <label style="margin-top:8px;">Gateway Endpoint URL</label>
+    <input id="ibm-endpoint" type="text" placeholder="https://us-south.ml.cloud.ibm.com/ml/gateway/v1">
+    <a id="ibm-key-link" href="#" target="_blank" style="font-size:14px;color:#4da3ff;text-decoration:none;margin-top:4px;display:inline-block;">Get IBM Cloud API key…</a>
+  </div>
+  <div id="generic-section" style="display:none;">
+    <label>API Key</label>
+    <input id="generic-api-key" type="password" placeholder="Enter API key…">
+    <label style="margin-top:8px;">Endpoint URL</label>
+    <input id="generic-endpoint" type="text" placeholder="https://api.example.com/v1">
+  </div>
 
   <!-- Agent Settings -->
   <h1>Agent Settings</h1>
@@ -207,10 +236,41 @@
 
     function updateLink(vendor) {
       const apiKeySection = document.getElementById("api-key-section");
+      const amazonSection = document.getElementById("amazon-section");
+      const microsoftSection = document.getElementById("microsoft-section");
+      const ibmSection = document.getElementById("ibm-section");
+      const genericSection = document.getElementById("generic-section");
       const apiKeyNote = document.getElementById("api-key-note");
-      apiKeySection.style.display = "";
-      apiKeyLink.href = vendors[vendor].apiKeyUrl || "#";
-      apiKeyNote.style.display = vendor === "ollama" ? "inline" : "none";
+      apiKeySection.style.display = "none";
+      amazonSection.style.display = "none";
+      microsoftSection.style.display = "none";
+      ibmSection.style.display = "none";
+      genericSection.style.display = "none";
+      if (vendor === "amazon") {
+        amazonSection.style.display = "";
+        document.getElementById("amazon-access-key").value = current.apiKeys.amazonAccessKey || "";
+        document.getElementById("amazon-secret-key").value = current.apiKeys.amazonSecretKey || "";
+        document.getElementById("amazon-region").value = current.apiKeys.amazonRegion || "us-east-1";
+        document.getElementById("amazon-key-link").href = vendors[vendor].apiKeyUrl || "#";
+      } else if (vendor === "microsoft") {
+        microsoftSection.style.display = "";
+        document.getElementById("microsoft-api-key").value = current.apiKeys.microsoftApiKey || "";
+        document.getElementById("microsoft-endpoint").value = current.apiKeys.microsoftEndpoint || "";
+        document.getElementById("microsoft-key-link").href = vendors[vendor].apiKeyUrl || "#";
+      } else if (vendor === "ibm") {
+        ibmSection.style.display = "";
+        document.getElementById("ibm-api-key").value = current.apiKeys.ibmApiKey || "";
+        document.getElementById("ibm-endpoint").value = current.apiKeys.ibmEndpoint || "";
+        document.getElementById("ibm-key-link").href = vendors[vendor].apiKeyUrl || "#";
+      } else if (vendor.startsWith("generic")) {
+        genericSection.style.display = "";
+        document.getElementById("generic-api-key").value = current.apiKeys[vendor + "ApiKey"] || "";
+        document.getElementById("generic-endpoint").value = current.apiKeys[vendor + "Endpoint"] || "";
+      } else {
+        apiKeySection.style.display = "";
+        apiKeyLink.href = vendors[vendor].apiKeyUrl || "#";
+        apiKeyNote.style.display = vendor === "ollama" ? "inline" : "none";
+      }
     }
 
     async function populateModels(vendor, savedModel) {
@@ -218,6 +278,20 @@
       let models = null;
       if (vendor === "ollama") {
         models = await ipcRenderer.invoke("get-models-for-vendor", "ollama");
+      } else if (vendor === "amazon") {
+        models = vendors[vendor].models;
+      } else if (vendor === "microsoft") {
+        const msKey = current.apiKeys.microsoftApiKey || "";
+        const msEndpoint = current.apiKeys.microsoftEndpoint || "";
+        if (msKey && msEndpoint) models = await ipcRenderer.invoke("get-models-for-vendor", "microsoft");
+      } else if (vendor === "ibm") {
+        const ibmKey = current.apiKeys.ibmApiKey || "";
+        const ibmEndpoint = current.apiKeys.ibmEndpoint || "";
+        if (ibmKey && ibmEndpoint) models = await ipcRenderer.invoke("get-models-for-vendor", "ibm");
+      } else if (vendor.startsWith("generic")) {
+        const gKey = current.apiKeys[vendor + "ApiKey"] || "";
+        const gEndpoint = current.apiKeys[vendor + "Endpoint"] || "";
+        if (gKey && gEndpoint) models = await ipcRenderer.invoke("fetch-models", { vendor, apiKey: gKey, baseURL: gEndpoint });
       } else {
         const apiKey = current.apiKeys[vendor] || "";
         if (apiKey) models = await ipcRenderer.invoke("fetch-models", { vendor, apiKey });
@@ -235,8 +309,28 @@
 
     vendorSel.addEventListener("change", async () => {
       current.defaultModels[vendorSel.dataset.prev] = modelSel.value;
-      current.apiKeys[vendorSel.value] = current.apiKeys[vendorSel.value] || "";
-      apiKeyIn.value = current.apiKeys[vendorSel.value];
+      // Save outgoing vendor's credentials
+      const prev = vendorSel.dataset.prev;
+      if (prev.startsWith("generic")) {
+        current.apiKeys[prev + "ApiKey"]   = document.getElementById("generic-api-key").value;
+        current.apiKeys[prev + "Endpoint"] = document.getElementById("generic-endpoint").value;
+      } else if (prev === "microsoft") {
+        current.apiKeys.microsoftApiKey   = document.getElementById("microsoft-api-key").value;
+        current.apiKeys.microsoftEndpoint = document.getElementById("microsoft-endpoint").value;
+      } else if (prev === "ibm") {
+        current.apiKeys.ibmApiKey   = document.getElementById("ibm-api-key").value;
+        current.apiKeys.ibmEndpoint = document.getElementById("ibm-endpoint").value;
+      } else if (prev === "amazon") {
+        current.apiKeys.amazonAccessKey = document.getElementById("amazon-access-key").value;
+        current.apiKeys.amazonSecretKey = document.getElementById("amazon-secret-key").value;
+        current.apiKeys.amazonRegion    = document.getElementById("amazon-region").value;
+      } else if (prev !== "ollama") {
+        current.apiKeys[prev] = apiKeyIn.value;
+      }
+      if (vendorSel.value !== "amazon" && vendorSel.value !== "microsoft" && vendorSel.value !== "ibm" && !vendorSel.value.startsWith("generic")) {
+        current.apiKeys[vendorSel.value] = current.apiKeys[vendorSel.value] || "";
+        apiKeyIn.value = current.apiKeys[vendorSel.value];
+      }
       updateLink(vendorSel.value);
       vendorSel.dataset.prev = vendorSel.value;
       await populateModels(vendorSel.value, current.defaultModels[vendorSel.value]);
@@ -254,6 +348,19 @@
       keyTimer = setTimeout(() => populateModels(vendorSel.value), 800);
     });
 
+    // re-fetch models when generic credentials change
+    let genericTimer;
+    document.getElementById("generic-api-key").addEventListener("input", () => {
+      current.apiKeys[vendorSel.value + "ApiKey"] = document.getElementById("generic-api-key").value;
+      clearTimeout(genericTimer);
+      genericTimer = setTimeout(() => populateModels(vendorSel.value), 800);
+    });
+    document.getElementById("generic-endpoint").addEventListener("input", () => {
+      current.apiKeys[vendorSel.value + "Endpoint"] = document.getElementById("generic-endpoint").value;
+      clearTimeout(genericTimer);
+      genericTimer = setTimeout(() => populateModels(vendorSel.value), 800);
+    });
+
     apiKeyLink.addEventListener("click", e => {
       e.preventDefault();
       ipcRenderer.invoke("open-external", apiKeyLink.href);
@@ -264,15 +371,53 @@
       ipcRenderer.invoke("open-external", "https://api.search.brave.com");
     });
 
+    document.getElementById("amazon-key-link").addEventListener("click", e => {
+      e.preventDefault();
+      ipcRenderer.invoke("open-external", document.getElementById("amazon-key-link").href);
+    });
+
+    document.getElementById("microsoft-key-link").addEventListener("click", e => {
+      e.preventDefault();
+      ipcRenderer.invoke("open-external", document.getElementById("microsoft-key-link").href);
+    });
+
+    document.getElementById("ibm-key-link").addEventListener("click", e => {
+      e.preventDefault();
+      ipcRenderer.invoke("open-external", document.getElementById("ibm-key-link").href);
+    });
+
     document.getElementById("browse-dir-btn").addEventListener("click", async () => {
       const dir = await ipcRenderer.invoke("agent-browse-dir");
       if (dir) document.getElementById("working-dir").value = dir;
     });
 
     document.getElementById("save-btn").addEventListener("click", () => {
-      current.apiKeys[vendorSel.value] = apiKeyIn.value;
+      if (vendorSel.value !== "amazon" && vendorSel.value !== "microsoft" && vendorSel.value !== "ibm" && !vendorSel.value.startsWith("generic")) current.apiKeys[vendorSel.value] = apiKeyIn.value;
       current.defaultModels[vendorSel.value] = modelSel.value;
       current.apiKeys["brave"] = document.getElementById("brave-api-key").value;
+      // Persist Bedrock credentials
+      current.apiKeys.amazonAccessKey = document.getElementById("amazon-access-key").value;
+      current.apiKeys.amazonSecretKey = document.getElementById("amazon-secret-key").value;
+      current.apiKeys.amazonRegion    = document.getElementById("amazon-region").value || "us-east-1";
+      // Persist Microsoft credentials
+      current.apiKeys.microsoftApiKey   = document.getElementById("microsoft-api-key").value;
+      current.apiKeys.microsoftEndpoint = document.getElementById("microsoft-endpoint").value;
+      // Persist IBM credentials
+      current.apiKeys.ibmApiKey   = document.getElementById("ibm-api-key").value;
+      current.apiKeys.ibmEndpoint = document.getElementById("ibm-endpoint").value;
+      // Persist Generic credentials (save for whichever generic is currently selected)
+      if (vendorSel.value.startsWith("generic")) {
+        current.apiKeys[vendorSel.value + "ApiKey"]   = document.getElementById("generic-api-key").value;
+        current.apiKeys[vendorSel.value + "Endpoint"] = document.getElementById("generic-endpoint").value;
+      }
+      // Remove stale keys
+      delete current.apiKeys.amazon;
+      delete current.apiKeys.bedrock;
+      delete current.apiKeys.microsoft;
+      delete current.apiKeys.ibm;
+      delete current.apiKeys.generic1;
+      delete current.apiKeys.generic2;
+      delete current.apiKeys.generic3;
       ipcRenderer.invoke("settings-save", {
         vendor: vendorSel.value,
         model: modelSel.value,

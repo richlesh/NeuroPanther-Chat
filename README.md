@@ -1,4 +1,4 @@
-# NeuroPanther Chat v1.5.0
+# NeuroPanther Chat v1.6.0
 
 A cross-platform desktop chat/agent application built with Electron that supports multiple AI vendors and models.
 
@@ -13,9 +13,19 @@ Connect to any of the following AI providers:
 - **OpenAI** — GPT-4o, GPT-4o Mini, GPT-4 Turbo, GPT-3.5 Turbo
 - **Anthropic** — Claude Opus 4.5, Claude Sonnet 4.5, Claude Haiku 4.5
 - **Google** — Gemini 2.0 Flash, Gemini 2.0 Flash Lite, Gemini 1.5 Pro, Gemini 1.5 Flash
+- **Amazon** — Claude Sonnet 4, Claude Haiku 4.5, Amazon Nova Pro, Amazon Nova Lite, Meta Llama 4 Maverick (via AWS Bedrock)
+- **Microsoft** — Azure OpenAI deployments (GPT-4o, GPT-4o Mini, GPT-4, etc.)
+- **IBM** — Granite, Llama, and other models via watsonx.ai Model Gateway
 - **DeepSeek** — DeepSeek Chat, DeepSeek Reasoner
 - **Alibaba** — Qwen Max, Qwen Plus, Qwen Turbo
 - **Meta** — Llama 3.3 70B, Llama 3.1 8B
+- **xAI** — Grok 3, Grok 3 Mini, Grok 2
+- **Groq** — Llama 3.3 70B, Llama 3.1 8B, Gemma2 9B, Qwen QWQ 32B
+- **Perplexity** — Sonar Pro, Sonar, Sonar Deep Research
+- **Mistral** — Mistral Large, Medium, Small, Open Mistral Nemo
+- **Cerebras** — Llama 4 Scout, Llama 3.3 70B, Qwen 3 32B
+- **Moonshot AI** — Kimi K2, Moonshot v1 (128k, 32k, 8k context)
+- **Generic 1/2/3** — Connect to any OpenAI-compatible API with custom endpoint and key
 - **Ollama** — Local models (requires Ollama installed and running)
 
 ### Chat
@@ -32,6 +42,7 @@ Connect to any of the following AI providers:
 - Tool calls are shown for approval before execution
 - Configurable working directory restricts file access for safety
 - Web search powered by Brave Search API
+- Supported by OpenAI, Anthropic, Google, Amazon, DeepSeek, and other vendors with tool/function calling support
 
 ### Math Equations
 - Render LaTeX math equations inline using `$...$` and in display blocks using `$$...$$`
@@ -104,13 +115,14 @@ Right-click any image in the chat to:
 
 ### Settings
 - Select your **vendor** and **model** from dropdown menus
-- Each vendor stores its own **API key** separately
+- Each vendor stores its own credentials separately
+- Vendors with custom authentication (Amazon, Microsoft, IBM, Generic) have dedicated credential fields
 - A direct link to each vendor's API key page is shown for convenience
 - Configure Agent Mode working directory and Brave Search API key
 - Settings are saved to `~/.neuropanther-chat-settings.json`
 
 ### Vendor Configuration
-Vendors, models, and API key URLs are defined in `config.json` making it easy to add new vendors or models without changing any code.
+Vendors, models, and API key URLs are defined in `config.json` making it easy to add new vendors or models without changing any code. Three generic vendor slots allow connecting to any OpenAI-compatible API.
 
 ---
 
@@ -162,9 +174,18 @@ Output files are placed in the `dist/` folder.
 | OpenAI | https://platform.openai.com/api-keys |
 | Anthropic | https://console.anthropic.com/settings/keys |
 | Google | https://aistudio.google.com/apikey |
+| Amazon | https://console.aws.amazon.com/iam/home#/security_credentials |
+| Microsoft | https://portal.azure.com/#view/Microsoft_Azure_ProjectOxford/CognitiveServicesHub/~/OpenAI |
+| IBM | https://cloud.ibm.com/iam/apikeys |
 | DeepSeek | https://platform.deepseek.com/api_keys |
 | Alibaba | https://www.alibabacloud.com/help/en/model-studio/get-api-key |
 | Meta | https://llama.developer.meta.com/docs/api-keys |
+| xAI | https://console.x.ai/team/default/api-keys |
+| Groq | https://console.groq.com/keys |
+| Perplexity | https://www.perplexity.ai/settings/api |
+| Mistral | https://console.mistral.ai/api-keys |
+| Cerebras | https://cloud.cerebras.ai/platform/api-keys |
+| Moonshot AI | https://platform.kimi.ai/console/api-keys |
 | Stability AI | https://platform.stability.ai/account/keys |
 | Leonardo | https://app.leonardo.ai/api-access |
 | Ideogram | https://ideogram.ai/manage-api |
@@ -176,8 +197,9 @@ Output files are placed in the `dist/` folder.
 ## Tech Stack
 
 - [Electron](https://www.electronjs.org)
-- [OpenAI Node SDK](https://github.com/openai/openai-node) — OpenAI, DeepSeek, Alibaba, Meta, Google text, Ollama
+- [OpenAI Node SDK](https://github.com/openai/openai-node) — OpenAI, Microsoft, DeepSeek, Alibaba, Meta, Google text, xAI, Groq, Perplexity, Mistral, Cerebras, Moonshot AI, Generic vendors, Ollama
 - [Anthropic Node SDK](https://github.com/anthropics/anthropic-sdk-node) — Anthropic Claude models
+- [AWS SDK Bedrock Runtime](https://github.com/aws/aws-sdk-js-v3) — Amazon Bedrock (Claude, Nova, Llama)
 - [Google GenAI SDK](https://github.com/googleapis/google-cloud-node) — Google Imagen image generation
 - [marked](https://marked.js.org) — Markdown rendering
 - [KaTeX](https://katex.org) — LaTeX math rendering

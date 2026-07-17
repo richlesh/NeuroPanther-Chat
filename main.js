@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, Menu, nativeImage, dialog, shell } = require("electron");
 const OpenAI = require("openai");
 const Anthropic = require("@anthropic-ai/sdk");
+const { BedrockRuntimeClient, ConverseCommand, ConverseStreamCommand } = require("@aws-sdk/client-bedrock-runtime");
 const path = require("path");
 const fs = require("fs");
 const https = require("https");
@@ -277,7 +278,7 @@ function openSettings() {
   if (settingsWin) return settingsWin.focus();
   settingsWin = new BrowserWindow({
     width: 840,
-    height: 560,
+    height: 690,
     resizable: false,
     parent: mainWin,
     modal: true,
@@ -420,8 +421,13 @@ async function fetchModels(vendor, apiKey) {
   return res.data.map(m => m.id.replace(/^models\//, "")).sort();
 }
 
-ipcMain.handle("fetch-models", async (_event, { vendor, apiKey }) => {
+ipcMain.handle("fetch-models", async (_event, { vendor, apiKey, baseURL }) => {
   try {
+    if (baseURL) {
+      const client = new OpenAI({ apiKey, baseURL });
+      const res = await client.models.list();
+      return res.data.map(m => m.id).sort();
+    }
     return await fetchModels(vendor, apiKey);
   } catch {
     return null;
@@ -431,7 +437,48 @@ ipcMain.handle("fetch-models", async (_event, { vendor, apiKey }) => {
 ipcMain.handle("get-models-for-vendor", async (_event, vendor) => {
   const { apiKeys } = load();
   const apiKey = apiKeys?.[vendor] || "";
-  if (!apiKey && vendor !== "ollama") return null;
+  if (!apiKey && vendor !== "ollama" && vendor !== "amazon" && vendor !== "microsoft" && vendor !== "ibm" && !vendor.startsWith("generic")) return null;
+  if (vendor === "amazon") {
+    if (!apiKeys?.amazonAccessKey || !apiKeys?.amazonSecretKey) return null;
+    return VENDORS[vendor]?.models || null;
+  }
+  if (vendor === "microsoft") {
+    if (!apiKeys?.microsoftApiKey || !apiKeys?.microsoftEndpoint) return null;
+    try {
+      const endpoint = (apiKeys.microsoftEndpoint || "").replace(/\/+$/, "");
+      const client = new OpenAI({ apiKey: apiKeys.microsoftApiKey, baseURL: `${endpoint}/openai/v1/`, defaultHeaders: { "api-key": apiKeys.microsoftApiKey } });
+      const res = await client.models.list();
+      const models = res.data.map(m => m.id).sort();
+      return models.length ? models : VENDORS[vendor]?.models || null;
+    } catch {
+      return VENDORS[vendor]?.models || null;
+    }
+  }
+  if (vendor === "ibm") {
+    if (!apiKeys?.ibmApiKey || !apiKeys?.ibmEndpoint) return null;
+    try {
+      const endpoint = (apiKeys.ibmEndpoint || "").replace(/\/+$/, "");
+      const client = new OpenAI({ apiKey: apiKeys.ibmApiKey, baseURL: `${endpoint}/ml/gateway/v1` });
+      const res = await client.models.list();
+      const models = res.data.map(m => m.id).sort();
+      return models.length ? models : VENDORS[vendor]?.models || null;
+    } catch {
+      return VENDORS[vendor]?.models || null;
+    }
+  }
+  if (vendor.startsWith("generic")) {
+    const gApiKey = apiKeys?.[vendor + "ApiKey"] || "";
+    const gEndpoint = (apiKeys?.[vendor + "Endpoint"] || "").replace(/\/+$/, "");
+    if (!gApiKey || !gEndpoint) return null;
+    try {
+      const client = new OpenAI({ apiKey: gApiKey, baseURL: gEndpoint });
+      const res = await client.models.list();
+      const models = res.data.map(m => m.id).sort();
+      return models.length ? models : null;
+    } catch {
+      return null;
+    }
+  }
   try {
     return await fetchModels(vendor, apiKey);
   } catch (e) {
@@ -671,8 +718,32 @@ ipcMain.on("chat-stream", async (event, { messages, vendor, model, agentMode, si
   activeAborts[sid] = abortController;
   checkMessageNag();
   const settings = load();
-  const apiKey = settings.apiKeys?.[vendor] || "";
-  if (!apiKey && vendor !== "ollama") { event.sender.send("stream-error", sid, "You need to set the API key in Settings before this LLM vendor can be used."); return; }
+  let apiKey = settings.apiKeys?.[vendor] || "";
+  let baseURL = VENDORS[vendor]?.baseURL;
+  let defaultHeaders;
+  // Microsoft Azure: resolve credentials
+  if (vendor === "microsoft") {
+    apiKey = settings.apiKeys?.microsoftApiKey || "";
+    const endpoint = (settings.apiKeys?.microsoftEndpoint || "").replace(/\/+$/, "");
+    if (!apiKey || !endpoint) { event.sender.send("stream-error", sid, "You need to set Azure API Key and Endpoint in Settings before Microsoft can be used."); return; }
+    baseURL = `${endpoint}/openai/v1/`;
+    defaultHeaders = { "api-key": apiKey };
+  }
+  // IBM watsonx.ai: resolve credentials
+  if (vendor === "ibm") {
+    apiKey = settings.apiKeys?.ibmApiKey || "";
+    const endpoint = (settings.apiKeys?.ibmEndpoint || "").replace(/\/+$/, "");
+    if (!apiKey || !endpoint) { event.sender.send("stream-error", sid, "You need to set IBM Cloud API Key and Endpoint in Settings before IBM can be used."); return; }
+    baseURL = `${endpoint}/ml/gateway/v1`;
+  }
+  // Generic vendors: resolve credentials
+  if (vendor.startsWith("generic")) {
+    apiKey = settings.apiKeys?.[vendor + "ApiKey"] || "";
+    const endpoint = (settings.apiKeys?.[vendor + "Endpoint"] || "").replace(/\/+$/, "");
+    if (!apiKey || !endpoint) { event.sender.send("stream-error", sid, "You need to set API Key and Endpoint in Settings before this vendor can be used."); return; }
+    baseURL = endpoint;
+  }
+  if (!apiKey && vendor !== "ollama" && vendor !== "amazon" && vendor !== "microsoft" && vendor !== "ibm" && !vendor.startsWith("generic")) { event.sender.send("stream-error", sid, "You need to set the API key in Settings before this LLM vendor can be used."); return; }
 
   const tools = agentMode ? (vendor === "anthropic" ? ANTHROPIC_TOOLS : AGENT_TOOLS) : undefined;
 
@@ -681,7 +752,91 @@ ipcMain.on("chat-stream", async (event, { messages, vendor, model, agentMode, si
   const useNonStreaming = vendor === "google" && hasToolResults;
 
   try {
-    if (vendor === "anthropic") {
+    if (vendor === "amazon") {
+      const amazonAccessKey = settings.apiKeys?.amazonAccessKey || "";
+      const amazonSecretKey = settings.apiKeys?.amazonSecretKey || "";
+      const amazonRegion    = settings.apiKeys?.amazonRegion || "us-east-1";
+      if (!amazonAccessKey || !amazonSecretKey) { event.sender.send("stream-error", sid, "You need to set AWS Access Key and Secret Key in Settings before Amazon can be used."); return; }
+      const client = new BedrockRuntimeClient({
+        region: amazonRegion,
+        credentials: { accessKeyId: amazonAccessKey, secretAccessKey: amazonSecretKey }
+      });
+      // Convert messages to Amazon Bedrock format
+      const systemPrompt = messages.find(m => m.role === "system");
+      const amazonMessages = [];
+      for (const m of messages) {
+        if (m.role === "system") continue;
+        if (m.role === "assistant" && m.tool_calls) {
+          const content = [];
+          if (m.content) content.push({ text: m.content });
+          for (const tc of m.tool_calls) {
+            let args = {};
+            try { args = JSON.parse(tc.function.arguments); } catch { args = {}; }
+            content.push({ toolUse: { toolUseId: tc.id, name: tc.function.name, input: args } });
+          }
+          amazonMessages.push({ role: "assistant", content });
+        } else if (m.role === "tool") {
+          const toolResultBlock = { toolResult: { toolUseId: m.tool_call_id, content: [{ text: m.content || "" }] } };
+          const last = amazonMessages[amazonMessages.length - 1];
+          if (last && last.role === "user") {
+            last.content.push(toolResultBlock);
+          } else {
+            amazonMessages.push({ role: "user", content: [toolResultBlock] });
+          }
+        } else {
+          const role = m.role === "assistant" ? "assistant" : "user";
+          const last = amazonMessages[amazonMessages.length - 1];
+          if (last && last.role === role) {
+            last.content.push({ text: m.content || "" });
+          } else {
+            amazonMessages.push({ role, content: [{ text: m.content || "" }] });
+          }
+        }
+      }
+      const amazonToolConfig = agentMode ? {
+        tools: AGENT_TOOLS.map(t => ({
+          toolSpec: { name: t.function.name, description: t.function.description, inputSchema: { json: t.function.parameters } }
+        }))
+      } : undefined;
+      const command = new ConverseStreamCommand({
+        modelId: model,
+        messages: amazonMessages,
+        ...(systemPrompt ? { system: [{ text: systemPrompt.content }] } : {}),
+        ...(amazonToolConfig ? { toolConfig: amazonToolConfig } : {}),
+        inferenceConfig: { maxTokens: 4096 }
+      });
+      const response = await client.send(command, { abortSignal: abortController.signal });
+      let fullText = "";
+      const toolUseBlocks = [];
+      let currentToolUse = null;
+      for await (const item of response.stream) {
+        if (item.contentBlockStart?.start?.toolUse) {
+          currentToolUse = { id: item.contentBlockStart.start.toolUse.toolUseId, name: item.contentBlockStart.start.toolUse.name, argsRaw: "" };
+        } else if (item.contentBlockDelta) {
+          if (item.contentBlockDelta.delta?.toolUse) {
+            if (currentToolUse) currentToolUse.argsRaw += item.contentBlockDelta.delta.toolUse.input || "";
+          } else {
+            const text = item.contentBlockDelta.delta?.text || "";
+            fullText += text;
+            event.sender.send("stream-chunk", sid, text);
+          }
+        } else if (item.contentBlockStop) {
+          if (currentToolUse) {
+            toolUseBlocks.push(currentToolUse);
+            currentToolUse = null;
+          }
+        }
+      }
+      if (toolUseBlocks.length > 0) {
+        event.sender.send("stream-tool-calls", sid, toolUseBlocks.map(tc => {
+          let args = {};
+          try { args = JSON.parse(tc.argsRaw); } catch { args = {}; }
+          return { id: tc.id, name: tc.name, args };
+        }));
+      } else {
+        event.sender.send("stream-done", sid, fullText);
+      }
+    } else if (vendor === "anthropic") {
       const client = new Anthropic({ apiKey });
       const sysMsg = messages.find(m => m.role === "system");
       const userMsgs = messages.filter(m => m.role !== "system");
@@ -725,7 +880,7 @@ ipcMain.on("chat-stream", async (event, { messages, vendor, model, agentMode, si
       if (sysTxt && googleMessages[0]?.role === "user") {
         googleMessages[0] = { ...googleMessages[0], content: sysTxt + "\n\n" + googleMessages[0].content };
       }
-      const client = new OpenAI({ apiKey, baseURL: VENDORS[vendor]?.baseURL });
+      const client = new OpenAI({ apiKey, baseURL, defaultHeaders });
       const res = await client.chat.completions.create({ model, messages: googleMessages, ...(tools ? { tools, tool_choice: "auto" } : {}) }, { signal: abortController.signal });
       const choice = res.choices[0];
       if (choice.finish_reason === "tool_calls" && choice.message.tool_calls?.length) {
@@ -739,8 +894,9 @@ ipcMain.on("chat-stream", async (event, { messages, vendor, model, agentMode, si
         event.sender.send("stream-done", sid, text);
       }
     } else {
-      const client = new OpenAI({ apiKey, baseURL: VENDORS[vendor]?.baseURL });
-      const stream = await client.chat.completions.create({ model, messages, stream: true, ...(tools ? { tools, tool_choice: "auto" } : {}) }, { signal: abortController.signal });
+      const client = new OpenAI({ apiKey, baseURL, defaultHeaders });
+      const reasoningWithTools = tools && (vendor === "openai");
+      const stream = await client.chat.completions.create({ model, messages, stream: true, ...(tools ? { tools, tool_choice: "auto" } : {}), ...(reasoningWithTools ? { reasoning_effort: "none" } : {}) }, { signal: abortController.signal });
       let fullText = "";
       const toolCallMap = {};
       for await (const chunk of stream) {
@@ -810,8 +966,62 @@ ipcMain.handle("chat", async (_event, { messages, vendor: vendorOverride, model:
   const settings = load();
   const vendor = vendorOverride || settings.vendor;
   const model  = modelOverride  || settings.model;
-  const apiKey = settings.apiKeys?.[vendor] || "";
-  if (!apiKey && vendor !== "ollama") throw new Error("You need to set the API key in Settings before this LLM vendor can be used.");
+  let apiKey = settings.apiKeys?.[vendor] || "";
+  if (vendor === "microsoft") {
+    apiKey = settings.apiKeys?.microsoftApiKey || "";
+    if (!apiKey || !settings.apiKeys?.microsoftEndpoint) throw new Error("You need to set Azure API Key and Endpoint in Settings before Microsoft can be used.");
+  }
+  if (!apiKey && vendor !== "ollama" && vendor !== "amazon" && vendor !== "microsoft" && vendor !== "ibm" && !vendor.startsWith("generic")) throw new Error("You need to set the API key in Settings before this LLM vendor can be used.");
+
+  if (vendor === "amazon") {
+    const amazonAccessKey = settings.apiKeys?.amazonAccessKey || "";
+    const amazonSecretKey = settings.apiKeys?.amazonSecretKey || "";
+    const amazonRegion    = settings.apiKeys?.amazonRegion || "us-east-1";
+    if (!amazonAccessKey || !amazonSecretKey) throw new Error("You need to set AWS Access Key and Secret Key in Settings before Amazon can be used.");
+    const client = new BedrockRuntimeClient({
+      region: amazonRegion,
+      credentials: { accessKeyId: amazonAccessKey, secretAccessKey: amazonSecretKey }
+    });
+    const systemPrompt = messages.find(m => m.role === "system");
+    const amazonMessages = [];
+    for (const m of messages) {
+      if (m.role === "system") continue;
+      if (m.role === "assistant" && m.tool_calls) {
+        const content = [];
+        if (m.content) content.push({ text: m.content });
+        for (const tc of m.tool_calls) {
+          let args = {};
+          try { args = JSON.parse(tc.function.arguments); } catch { args = {}; }
+          content.push({ toolUse: { toolUseId: tc.id, name: tc.function.name, input: args } });
+        }
+        amazonMessages.push({ role: "assistant", content });
+      } else if (m.role === "tool") {
+        const toolResultBlock = { toolResult: { toolUseId: m.tool_call_id, content: [{ text: m.content || "" }] } };
+        const last = amazonMessages[amazonMessages.length - 1];
+        if (last && last.role === "user") {
+          last.content.push(toolResultBlock);
+        } else {
+          amazonMessages.push({ role: "user", content: [toolResultBlock] });
+        }
+      } else {
+        const role = m.role === "assistant" ? "assistant" : "user";
+        const last = amazonMessages[amazonMessages.length - 1];
+        if (last && last.role === role) {
+          last.content.push({ text: m.content || "" });
+        } else {
+          amazonMessages.push({ role, content: [{ text: m.content || "" }] });
+        }
+      }
+    }
+    const command = new ConverseCommand({
+      modelId: model,
+      messages: amazonMessages,
+      ...(systemPrompt ? { system: [{ text: systemPrompt.content }] } : {}),
+      inferenceConfig: { maxTokens: 4096 }
+    });
+    const response = await client.send(command);
+    return response.output.message.content[0].text;
+  }
 
   if (vendor === "anthropic") {
     const client = new Anthropic({ apiKey });
@@ -823,7 +1033,20 @@ ipcMain.handle("chat", async (_event, { messages, vendor: vendorOverride, model:
     return res.content[0].text;
   }
 
-  const client = new OpenAI({ apiKey, baseURL: VENDORS[vendor]?.baseURL });
+  let chatBaseURL;
+  if (vendor === "microsoft") {
+    chatBaseURL = `${(settings.apiKeys?.microsoftEndpoint || "").replace(/\/+$/, "")}/openai/v1/`;
+  } else if (vendor === "ibm") {
+    apiKey = settings.apiKeys?.ibmApiKey || "";
+    chatBaseURL = `${(settings.apiKeys?.ibmEndpoint || "").replace(/\/+$/, "")}/ml/gateway/v1`;
+  } else if (vendor.startsWith("generic")) {
+    apiKey = settings.apiKeys?.[vendor + "ApiKey"] || "";
+    chatBaseURL = (settings.apiKeys?.[vendor + "Endpoint"] || "").replace(/\/+$/, "");
+  } else {
+    chatBaseURL = VENDORS[vendor]?.baseURL;
+  }
+  const chatHeaders = vendor === "microsoft" ? { "api-key": apiKey } : undefined;
+  const client = new OpenAI({ apiKey, baseURL: chatBaseURL, defaultHeaders: chatHeaders });
   const res = await client.chat.completions.create({ model, messages });
   return res.choices[0].message.content;
 });

@@ -14,6 +14,25 @@ function load() {
       saved.apiKeys = { [saved.vendor]: saved.apiKey };
       delete saved.apiKey;
     }
+    // Migration: remove stale "bedrock", "amazon", "microsoft" keys (credentials are stored as amazonAccessKey, microsoftApiKey, etc.)
+    if (saved.apiKeys) {
+      delete saved.apiKeys.bedrock;
+      delete saved.apiKeys.amazon;
+      delete saved.apiKeys.microsoft;
+      delete saved.apiKeys.ibm;
+      // Migrate old bedrockAccessKey → amazonAccessKey
+      if (saved.apiKeys.bedrockAccessKey && !saved.apiKeys.amazonAccessKey) {
+        saved.apiKeys.amazonAccessKey = saved.apiKeys.bedrockAccessKey;
+        saved.apiKeys.amazonSecretKey = saved.apiKeys.bedrockSecretKey;
+        saved.apiKeys.amazonRegion = saved.apiKeys.bedrockRegion;
+      }
+      delete saved.apiKeys.bedrockAccessKey;
+      delete saved.apiKeys.bedrockSecretKey;
+      delete saved.apiKeys.bedrockRegion;
+    }
+    if (saved.defaultModels) {
+      delete saved.defaultModels.bedrock;
+    }
     return { ...DEFAULTS, ...saved, apiKeys: { ...DEFAULTS.apiKeys, ...saved.apiKeys } };
   } catch {
     return { ...DEFAULTS };
