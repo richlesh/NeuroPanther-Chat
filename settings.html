@@ -120,8 +120,9 @@
     </div>
   </div>
   <div>
-    <label>Brave Search API Key <a id="brave-key-link" href="https://api.search.brave.com" style="font-size:11px;color:#4da3ff;text-decoration:none;margin-left:6px;">Get API key…</a></label>
+    <label>Brave Search API Key</label>
     <input id="brave-api-key" type="password" placeholder="Enter Brave Search API key…">
+    <a id="brave-key-link" href="https://api.search.brave.com" style="font-size:14px;color:#4da3ff;text-decoration:none;margin-top:4px;display:inline-block;">Get API key…</a>
   </div>
 <h1 style="break-before:column;">
   <!-- Translation Settings -->
@@ -143,6 +144,29 @@
   <div style="display:flex;align-items:center;gap:8px;">
     <input type="checkbox" id="display-model-activity" style="width:auto;margin:0;">
     <label for="display-model-activity" style="margin:0;cursor:pointer;">Display Model Activity</label>
+  </div>
+
+  <!-- Font Settings -->
+  <div class="section-title">Fonts</div>
+  <div style="display:flex;gap:12px;">
+    <div style="flex:2">
+      <label>Text Font</label>
+      <select id="text-font"></select>
+    </div>
+    <div style="flex:1">
+      <label>Size</label>
+      <select id="text-font-size"></select>
+    </div>
+  </div>
+  <div style="display:flex;gap:12px;margin-top:8px;">
+    <div style="flex:2">
+      <label>Code Font</label>
+      <select id="code-font"></select>
+    </div>
+    <div style="flex:1">
+      <label>Size</label>
+      <select id="code-font-size"></select>
+    </div>
   </div>
 
   <!-- Color Settings -->
@@ -218,6 +242,83 @@
       toSel.value = current.defaultToLang || "English";
 
       document.getElementById("display-model-activity").checked = current.displayModelActivity !== false;
+
+      // Populate font selectors
+      const textFontSel = document.getElementById("text-font");
+      const codeFontSel = document.getElementById("code-font");
+      const textFontSizeSel = document.getElementById("text-font-size");
+      const codeFontSizeSel = document.getElementById("code-font-size");
+
+      const allFonts = [];
+      const monoFonts = [];
+      (function detectFonts() {
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        const testStr = "mmmmmmmmmmlli";
+        const defaultWidth = (f) => { ctx.font = `16px ${f}`; return ctx.measureText(testStr).width; };
+        const sansWidth = defaultWidth("sans-serif");
+        const serifWidth = defaultWidth("serif");
+        const monoWidth = defaultWidth("monospace");
+        const candidates = [
+          "Arial","Arial Black","Avenir","Avenir Next","Baskerville","Bodoni 72",
+          "Bookman Old Style","Calibri","Cambria","Cascadia Code","Cascadia Mono",
+          "Century Gothic","Comic Sans MS","Consolas","Constantia","Courier New",
+          "DejaVu Sans","DejaVu Sans Mono","Didot","Fira Code","Fira Mono","Fira Sans",
+          "Futura","Garamond","Geneva","Georgia","Gill Sans","Hack","Helvetica",
+          "Helvetica Neue","IBM Plex Mono","IBM Plex Sans","Impact","Inconsolata",
+          "Inter","JetBrains Mono","Lato","Lucida Console","Lucida Grande",
+          "Lucida Sans Unicode","Menlo","Monaco","Noto Sans","Noto Sans Mono",
+          "Optima","Osaka","Palatino","Roboto","Roboto Mono","San Francisco",
+          "SF Mono","SF Pro","Source Code Pro","Source Sans Pro","Tahoma","Times New Roman",
+          "Trebuchet MS","Ubuntu","Ubuntu Mono","Verdana"
+        ];
+        for (const name of candidates) {
+          ctx.font = `16px "${name}", sans-serif`;
+          const w = ctx.measureText(testStr).width;
+          if (w !== sansWidth || w !== serifWidth) {
+            allFonts.push(name);
+            // Check if monospaced
+            ctx.font = `16px "${name}", monospace`;
+            const wm = ctx.measureText(testStr).width;
+            if (wm === monoWidth || Math.abs(wm - monoWidth) < 1) {
+              monoFonts.push(name);
+            }
+          }
+        }
+        // Always include system defaults
+        if (!allFonts.includes("System Default")) allFonts.unshift("System Default");
+        if (!monoFonts.includes("System Default")) monoFonts.unshift("System Default");
+      })();
+
+      allFonts.forEach(f => {
+        const opt = document.createElement("option");
+        opt.value = f === "System Default" ? "" : f;
+        opt.textContent = f;
+        opt.style.fontFamily = f === "System Default" ? "" : `"${f}"`;
+        textFontSel.appendChild(opt);
+      });
+      monoFonts.forEach(f => {
+        const opt = document.createElement("option");
+        opt.value = f === "System Default" ? "" : f;
+        opt.textContent = f;
+        opt.style.fontFamily = f === "System Default" ? "" : `"${f}"`;
+        codeFontSel.appendChild(opt);
+      });
+
+      const sizes = [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24];
+      sizes.forEach(s => {
+        const opt1 = document.createElement("option");
+        opt1.value = s; opt1.textContent = s + "px";
+        textFontSizeSel.appendChild(opt1);
+        const opt2 = document.createElement("option");
+        opt2.value = s; opt2.textContent = s + "px";
+        codeFontSizeSel.appendChild(opt2);
+      });
+
+      textFontSel.value = current.textFont || "";
+      textFontSizeSel.value = current.textFontSize || "14";
+      codeFontSel.value = current.codeFont || "";
+      codeFontSizeSel.value = current.codeFontSize || "13";
 
       // Populate TTS voices
       const ttsVoiceSel = document.getElementById("tts-voice");
@@ -432,6 +533,10 @@
         defaultToLang:    document.getElementById("default-to-lang").value,
         displayModelActivity: document.getElementById("display-model-activity").checked,
         ttsVoice:         document.getElementById("tts-voice").value,
+        textFont:         document.getElementById("text-font").value,
+        textFontSize:     document.getElementById("text-font-size").value,
+        codeFont:         document.getElementById("code-font").value,
+        codeFontSize:     document.getElementById("code-font-size").value,
         accentColor:      document.getElementById("accent-color").value,
         userBubbleColor:  document.getElementById("user-bubble-color").value,
         aiBubbleColor:    document.getElementById("ai-bubble-color").value

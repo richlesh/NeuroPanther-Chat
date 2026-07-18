@@ -1097,6 +1097,9 @@
       // apply saved colors
       applyColors(settings);
 
+      // apply saved fonts
+      applyFonts(settings);
+
       // load working directory
       ipcRenderer.invoke("agent-get-working-dir").then(dir => {
         if (dir) agentDirLabel.textContent = dir;
@@ -2052,6 +2055,7 @@
         rememberedModel[settings.vendor] = settings.defaultModels?.[settings.vendor] || settings.model;
         defaultVendor = settings.vendor;
         applyColors(settings);
+        applyFonts(settings);
         updateMicAvailability();
       });
     });
@@ -2071,6 +2075,25 @@
         --ai-bubble: ${aiBubble};
         --ai-bubble-text: ${aiText};
       }`;
+    }
+
+    function applyFonts(settings) {
+      const textFont = settings.textFont || "";
+      const textSize = settings.textFontSize || "14";
+      const codeFont = settings.codeFont || "";
+      const codeSize = settings.codeFontSize || "13";
+      let fontStyle = document.getElementById("font-theme");
+      if (!fontStyle) {
+        fontStyle = document.createElement("style");
+        fontStyle.id = "font-theme";
+        document.head.appendChild(fontStyle);
+      }
+      const textFamily = textFont ? `"${textFont}", Calibri, Helvetica, sans-serif` : "-apple-system, sans-serif";
+      const codeFamily = codeFont ? `"${codeFont}", 'JetBrains Mono',monospace` : "'JetBrains Mono', monospace";
+      fontStyle.textContent = `
+        body, .msg { font-family: ${textFamily}; font-size: ${textSize}px; }
+        .msg.assistant code, pre code, .tool-card-args, .tool-card-result, .think-block-body { font-family: ${codeFamily}; font-size: ${codeSize}px; }
+      `;
     }
 
     function shadeColor(hex, pct) {
