@@ -879,11 +879,10 @@
         tabs[activeTabId].model      = modelSel.value;
         tabs[activeTabId].promptText = prompt.value;
         tabs[activeTabId].domEl.classList.remove("active");
-        // detach outgoing container
-        if (chatEl.contains(tabs[activeTabId].container)) {
-          chatEl.removeChild(tabs[activeTabId].container);
-        }
       }
+
+      // clear chatEl completely before attaching new container
+      while (chatEl.firstChild) chatEl.removeChild(chatEl.firstChild);
 
       activeTabId = id;
       const tab = tabs[id];
@@ -1153,7 +1152,8 @@
     const modelCache = {};  // vendor → models array
 
     async function fetchAndPopulateModels(vendor, targetModel = null) {
-      if (!modelCache[vendor]) {
+      const skipCache = vendor === "ibm" || vendor === "microsoft" || vendor === "amazon" || vendor.startsWith("generic");
+      if (!modelCache[vendor] || skipCache) {
         modelSel.innerHTML = "<option disabled>Loading\u2026</option>";
         modelCache[vendor] = await ipcRenderer.invoke("get-models-for-vendor", vendor);
       }

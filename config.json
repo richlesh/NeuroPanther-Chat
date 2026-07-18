@@ -31,9 +31,9 @@
     },
     "meta": {
       "label": "Meta",
-      "models": ["meta-llama/Llama-3.3-70B-Instruct", "meta-llama/Llama-3.1-8B-Instruct"],
-      "apiKeyUrl": "https://llama.developer.meta.com/docs/api-keys",
-      "baseURL": "https://api.llama.com/compat/v1",
+      "models": ["muse-spark-1.1"],
+      "apiKeyUrl": "https://developer.meta.com/ai/",
+      "baseURL": "https://api.meta.ai/v1",
       "imageGeneration": false
     },
     "google": {
@@ -102,9 +102,9 @@
     },
     "perplexity": {
       "label": "Perplexity",
-      "models": ["sonar-pro", "sonar", "sonar-deep-research"],
+      "models": ["sonar-pro", "sonar-reasoning-pro"],
       "apiKeyUrl": "https://www.perplexity.ai/settings/api",
-      "baseURL": "https://api.perplexity.ai/v1",
+      "baseURL": "https://api.perplexity.ai",
       "imageGeneration": false
     },
     "mistral": {

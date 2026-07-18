@@ -97,8 +97,10 @@
   <div id="ibm-section" style="display:none;">
     <label>IBM Cloud API Key</label>
     <input id="ibm-api-key" type="password" placeholder="Enter IBM Cloud API key…">
-    <label style="margin-top:8px;">Gateway Endpoint URL</label>
-    <input id="ibm-endpoint" type="text" placeholder="https://us-south.ml.cloud.ibm.com/ml/gateway/v1">
+    <label style="margin-top:8px;">Endpoint URL</label>
+    <input id="ibm-endpoint" type="text" placeholder="https://us-south.ml.cloud.ibm.com">
+    <label style="margin-top:8px;">Project ID</label>
+    <input id="ibm-project-id" type="text" placeholder="Enter project ID…">
     <a id="ibm-key-link" href="#" target="_blank" style="font-size:14px;color:#4da3ff;text-decoration:none;margin-top:4px;display:inline-block;">Get IBM Cloud API key…</a>
   </div>
   <div id="generic-section" style="display:none;">
@@ -261,6 +263,7 @@
         ibmSection.style.display = "";
         document.getElementById("ibm-api-key").value = current.apiKeys.ibmApiKey || "";
         document.getElementById("ibm-endpoint").value = current.apiKeys.ibmEndpoint || "";
+        document.getElementById("ibm-project-id").value = current.apiKeys.ibmProjectId || "";
         document.getElementById("ibm-key-link").href = vendors[vendor].apiKeyUrl || "#";
       } else if (vendor.startsWith("generic")) {
         genericSection.style.display = "";
@@ -320,6 +323,7 @@
       } else if (prev === "ibm") {
         current.apiKeys.ibmApiKey   = document.getElementById("ibm-api-key").value;
         current.apiKeys.ibmEndpoint = document.getElementById("ibm-endpoint").value;
+        current.apiKeys.ibmProjectId = document.getElementById("ibm-project-id").value;
       } else if (prev === "amazon") {
         current.apiKeys.amazonAccessKey = document.getElementById("amazon-access-key").value;
         current.apiKeys.amazonSecretKey = document.getElementById("amazon-secret-key").value;
@@ -406,6 +410,7 @@
       } else if (vendorSel.value === "ibm") {
         current.apiKeys.ibmApiKey   = document.getElementById("ibm-api-key").value;
         current.apiKeys.ibmEndpoint = document.getElementById("ibm-endpoint").value;
+        current.apiKeys.ibmProjectId = document.getElementById("ibm-project-id").value;
       } else if (vendorSel.value.startsWith("generic")) {
         current.apiKeys[vendorSel.value + "ApiKey"]   = document.getElementById("generic-api-key").value;
         current.apiKeys[vendorSel.value + "Endpoint"] = document.getElementById("generic-endpoint").value;

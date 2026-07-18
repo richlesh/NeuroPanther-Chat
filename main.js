@@ -458,7 +458,8 @@ ipcMain.handle("get-models-for-vendor", async (_event, vendor) => {
     if (!apiKeys?.ibmApiKey || !apiKeys?.ibmEndpoint) return null;
     try {
       const endpoint = (apiKeys.ibmEndpoint || "").replace(/\/+$/, "");
-      const client = new OpenAI({ apiKey: apiKeys.ibmApiKey, baseURL: `${endpoint}/ml/gateway/v1` });
+      const headers = apiKeys.ibmProjectId ? { "X-IBM-Project-Id": apiKeys.ibmProjectId } : undefined;
+      const client = new OpenAI({ apiKey: apiKeys.ibmApiKey, baseURL: `${endpoint}/ml/gateway/v1`, defaultHeaders: headers });
       const res = await client.models.list();
       const models = res.data.map(m => m.id).sort();
       return models.length ? models : VENDORS[vendor]?.models || null;
@@ -733,8 +734,10 @@ ipcMain.on("chat-stream", async (event, { messages, vendor, model, agentMode, si
   if (vendor === "ibm") {
     apiKey = settings.apiKeys?.ibmApiKey || "";
     const endpoint = (settings.apiKeys?.ibmEndpoint || "").replace(/\/+$/, "");
+    const projectId = settings.apiKeys?.ibmProjectId || "";
     if (!apiKey || !endpoint) { event.sender.send("stream-error", sid, "You need to set IBM Cloud API Key and Endpoint in Settings before IBM can be used."); return; }
     baseURL = `${endpoint}/ml/gateway/v1`;
+    defaultHeaders = { ...(projectId ? { "X-IBM-Project-Id": projectId } : {}) };
   }
   // Generic vendors: resolve credentials
   if (vendor.startsWith("generic")) {
@@ -1045,7 +1048,9 @@ ipcMain.handle("chat", async (_event, { messages, vendor: vendorOverride, model:
   } else {
     chatBaseURL = VENDORS[vendor]?.baseURL;
   }
-  const chatHeaders = vendor === "microsoft" ? { "api-key": apiKey } : undefined;
+  let chatHeaders;
+  if (vendor === "microsoft") chatHeaders = { "api-key": apiKey };
+  else if (vendor === "ibm" && settings.apiKeys?.ibmProjectId) chatHeaders = { "X-IBM-Project-Id": settings.apiKeys.ibmProjectId };
   const client = new OpenAI({ apiKey, baseURL: chatBaseURL, defaultHeaders: chatHeaders });
   const res = await client.chat.completions.create({ model, messages });
   return res.choices[0].message.content;
