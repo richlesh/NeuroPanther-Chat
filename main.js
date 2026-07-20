@@ -416,6 +416,12 @@ async function fetchModels(vendor, apiKey) {
     const res = await client.models.list();
     return res.data.map(m => m.id).sort();
   }
+  if (vendor === "perplexity") {
+    const base = (VENDORS[vendor]?.baseURL || "").replace(/\/+$/, "");
+    const client = new OpenAI({ apiKey, baseURL: `${base}/v1` });
+    const res = await client.models.list();
+    return res.data.map(m => m.id.replace(/^[^/]+\//, "")).sort();
+  }
   const client = new OpenAI({ apiKey, baseURL: VENDORS[vendor]?.baseURL });
   const res = await client.models.list();
   return res.data.map(m => m.id.replace(/^models\//, "")).sort();
