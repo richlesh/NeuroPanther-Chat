@@ -401,6 +401,7 @@
         if (apiKey) models = await ipcRenderer.invoke("fetch-models", { vendor, apiKey });
       }
       if (!models || models.length === 0) models = vendors[vendor].models;
+      if (!models || models.length === 0) models = vendors[vendor].imageModels || [];
       modelSel.innerHTML = "";
       for (const m of [...models].sort((a, b) => a.localeCompare(b))) {
         const opt = document.createElement("option");

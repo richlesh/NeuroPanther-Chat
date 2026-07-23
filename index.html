@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="disable-code-actions" content="true">
   <title>NeuroPanther Chat</title>
-  <link rel="stylesheet" href="node_modules/highlight.js/styles/github-dark.css" media="screen">
+  <link rel="stylesheet" href="node_modules/highlight.js/styles/github.css" media="screen">
   <link rel="stylesheet" href="node_modules/katex/dist/katex.min.css">
   <style id="theme">
     :root {
@@ -105,7 +105,7 @@
     .msg.assistant ul, .msg.assistant ol { margin: 0 0 8px 20px; }
     .msg.assistant li { margin-bottom: 2px; }
     .msg.assistant h1, .msg.assistant h2, .msg.assistant h3 { margin: 8px 0 4px; }
-    .msg.assistant code { background: var(--ai-bubble); padding: 1px 5px; border-radius: 4px; font-size: 14px; font-family: 'JetBrains Mono', monospace; }
+    .msg.assistant code { background: #f0f0f0; color: #1e1e1e; padding: 1px 5px; border-radius: 4px; font-size: 14px; font-family: 'JetBrains Mono', monospace; }
     .msg.assistant pre { 
       margin: 8px 0; 
       border-radius: 8px; 
@@ -115,6 +115,7 @@
       user-select: text;
       min-height: 40px;
       padding: 10px;
+      background: #f0f0f0;
     }
     .msg.assistant pre::before {
       content: '';
@@ -124,6 +125,7 @@
     }
     .msg.assistant pre code { 
       background: none; 
+      color: #1e1e1e;
       padding: 0; 
       font-size: 14px;
       font-family: 'JetBrains Mono', monospace;
@@ -159,6 +161,11 @@
     .msg.assistant pre:hover .code-copy-btn { opacity: 1; }
     .code-copy-btn:hover { background: #555; color: #fff; }
     .msg.assistant blockquote { border-left: 3px solid #555; padding-left: 10px; color: #aaa; margin: 6px 0; }
+    .msg.assistant table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 14px; }
+    .msg.assistant th { background: #888; color: #fff; padding: 8px 12px; text-align: left; border: 1px solid #999; }
+    .msg.assistant td { padding: 8px 12px; border: 1px solid #ccc; color: #000; }
+    .msg.assistant tr:nth-child(odd) td { background: #f7f7f7; }
+    .msg.assistant tr:nth-child(even) td { background: #fff; }
     .msg.assistant a { color: var(--accent); }
     .msg.assistant .katex-display { overflow-x: auto; overflow-y: hidden; }
 
@@ -451,7 +458,7 @@
       outline: none;
     }
 
-    #vendor-select, #model-select {
+    #vendor-select, #model-select, #image-model-select {
       background: #3a3a3c;
       color: #e0e0e0;
       border: none;
@@ -462,12 +469,13 @@
       cursor: pointer;
       flex-shrink: 0;
     }
-    #vendor-select:disabled, #model-select:disabled {
+    #vendor-select:disabled, #model-select:disabled, #image-model-select:disabled {
       opacity: 0.45;
       cursor: not-allowed;
     }
     #vendor-select { max-width: 100px; }
     #model-select  { max-width: 140px; }
+    #image-model-select { max-width: 180px; }
 
     #send-btn {
       width: 40px;
@@ -590,6 +598,7 @@
   <div id="input-area">
     <select id="vendor-select" title="Vendor"></select>
     <select id="model-select" title="Model"></select>
+    <select id="image-model-select" title="Image Model" style="display:none"></select>
     <button class="icon-btn" id="attach-btn" title="Attach file(s)">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
@@ -741,6 +750,7 @@
     const previewWrap  = document.getElementById("attachment-preview-wrap");
     const vendorSel    = document.getElementById("vendor-select");
     const modelSel     = document.getElementById("model-select");
+    const imageModelSel = document.getElementById("image-model-select");
     const tabBar       = document.getElementById("tab-bar");
     const newTabBtn    = document.getElementById("new-tab-btn");
 
@@ -915,6 +925,8 @@
       if (tab.model) modelSel.value = tab.model;
       fetchAndPopulateModels(vendorSel.value, tab.model || null).then(() => {
         modelSel.style.display = tab.imagineMode ? "none" : "";
+        imageModelSel.style.display = tab.imagineMode ? "" : "none";
+        if (tab.imagineMode) populateImageModelSelect(vendorSel.value);
       });
 
       clearAttachments();
@@ -933,9 +945,11 @@
       const locked = tab ? (tab.locked && !tab.imagineMode) : false;
       vendorSel.disabled = locked;
       modelSel.disabled  = locked;
+      imageModelSel.disabled = locked;
       const tip = locked ? "Vendor/model locked — start a new tab to change" : "";
       vendorSel.title = tip;
       modelSel.title  = tip;
+      imageModelSel.title = tip;
     }
 
     async function closeTab(id) {
@@ -1111,7 +1125,10 @@
         const tab = activeTab();
         if (tab) tab.vendor = vendorSel.value;
         populateVendorSelect(allVendors, vendorSel.value, tab ? tab.imagineMode : false);
-        if (tab?.imagineMode) showImageGenInfo();
+        if (tab?.imagineMode) {
+          populateImageModelSelect(vendorSel.value);
+          showImageGenInfo();
+        }
       });
 
       if (pendingLoad) {
@@ -1183,6 +1200,29 @@
       rememberedModel[vendorSel.value] = modelSel.value;
       const tab = activeTab();
       if (tab) tab.model = modelSel.value;
+    });
+
+    const rememberedImageModel = {};  // vendor → selected image model
+
+    function populateImageModelSelect(vendor) {
+      const vendorCfg = allVendors[vendor];
+      const models = vendorCfg?.imageModels || (vendorCfg?.imageModel ? [vendorCfg.imageModel] : []);
+      imageModelSel.innerHTML = "";
+      for (const m of models) {
+        const opt = document.createElement("option");
+        opt.value = m; opt.textContent = m;
+        imageModelSel.appendChild(opt);
+      }
+      const restore = rememberedImageModel[vendor];
+      if (restore && models.includes(restore)) {
+        imageModelSel.value = restore;
+      }
+    }
+
+    imageModelSel.addEventListener("change", () => {
+      rememberedImageModel[vendorSel.value] = imageModelSel.value;
+      const tab = activeTab();
+      if (tab) tab.imageModel = imageModelSel.value;
     });
 
     // ── File attach ────────────────────────────────────────────────────────────
@@ -1403,6 +1443,7 @@
       prompt.placeholder = "Message…";
       populateVendorSelect(allVendors, vendorSel.value, false);
       modelSel.style.display = "";
+      imageModelSel.style.display = "none";
       clearAttachments();
       applyVendorLock(tab);
     }
@@ -1418,6 +1459,8 @@
         prompt.placeholder = "Describe an image to generate…";
         populateVendorSelect(allVendors, vendorSel.value, true);
         modelSel.style.display = "none";
+        imageModelSel.style.display = "";
+        populateImageModelSelect(vendorSel.value);
         applyVendorLock(tab);
         showImageGenInfo();
       }
@@ -1500,7 +1543,19 @@
         try {
           const sourceImageBase64 = imageFile?.base64 || tab.lastGeneratedImageBase64 || null;
           clearAttachments();
-          const url = await ipcRenderer.invoke("generate-image", { promptText: text, vendor, sourceImageBase64 });
+          // Build cumulative prompt from prior image-gen turns for iterative refinement
+          let fullPrompt = text;
+          if (sourceImageBase64) {
+            const priorPrompts = tab.chatLog
+              .filter(m => m.role === "user" && m.content.startsWith("🎨 "))
+              .map(m => m.content.slice(2).trim());
+            // Exclude the current prompt (just pushed above)
+            priorPrompts.pop();
+            if (priorPrompts.length) {
+              fullPrompt = "Previous instructions for this image:\n" + priorPrompts.map((p, i) => `${i + 1}. ${p}`).join("\n") + "\n\nNew instruction: " + text;
+            }
+          }
+          const url = await ipcRenderer.invoke("generate-image", { promptText: fullPrompt, vendor, sourceImageBase64, imageModel: imageModelSel.value });
           thinking.innerHTML = "";
           thinking.classList.remove("thinking-indicator");
           const img = document.createElement("img");

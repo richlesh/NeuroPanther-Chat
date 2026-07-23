@@ -1130,17 +1130,18 @@ ipcMain.handle("chat-with-image", async (_event, { tempPath, mediaType, text, ve
   return res.choices[0].message.content;
 });
 
-ipcMain.handle("generate-image", async (_event, { promptText, vendor, sourceImageBase64 }) => {
+ipcMain.handle("generate-image", async (_event, { promptText, vendor, sourceImageBase64, imageModel }) => {
   const { apiKeys } = load();
   if (!apiKeys?.[vendor]) throw new Error("You need to set the API key in Settings before this LLM vendor can be used.");
   const vendorCfg = VENDORS[vendor];
+  const model = imageModel || vendorCfg.imageModel;
 
   if (vendor === "google") {
     // Google Imagen is text-to-image only — image editing not supported
     const { GoogleGenAI } = require("@google/genai");
     const ai = new GoogleGenAI({ apiKey: apiKeys.google });
     const res = await ai.models.generateImages({
-      model: vendorCfg.imageModel,
+      model,
       prompt: promptText,
       config: { numberOfImages: 1, outputMimeType: "image/png" }
     });
@@ -1151,7 +1152,7 @@ ipcMain.handle("generate-image", async (_event, { promptText, vendor, sourceImag
   if (vendor === "stability") {
     const form = new FormData();
     form.append("prompt", promptText);
-    form.append("model", vendorCfg.imageModel);
+    form.append("model", model);
     form.append("output_format", "png");
     const res = await fetch("https://api.stability.ai/v2beta/stable-image/generate/sd3", {
       method: "POST",
@@ -1173,7 +1174,7 @@ ipcMain.handle("generate-image", async (_event, { promptText, vendor, sourceImag
     const genRes = await fetch(`${baseUrl}/generations`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ prompt: promptText, modelId: vendorCfg.imageModel, num_images: 1, width: 1024, height: 1024, contrast: 3.5 })
+      body: JSON.stringify({ prompt: promptText, modelId: model, num_images: 1, width: 1024, height: 1024, contrast: 3.5 })
     });
     if (!genRes.ok) {
       const err = await genRes.json().catch(() => ({ message: genRes.statusText }));
@@ -1202,7 +1203,7 @@ ipcMain.handle("generate-image", async (_event, { promptText, vendor, sourceImag
     const form = new FormData();
     form.append("prompt", promptText);
     form.append("rendering_speed", "DEFAULT");
-    const res = await fetch("https://api.ideogram.ai/v1/ideogram-v3/generate", {
+    const res = await fetch(`https://api.ideogram.ai/v1/${model}/generate`, {
       method: "POST",
       headers: { "Api-Key": apiKeys.ideogram },
       body: form
@@ -1218,7 +1219,147 @@ ipcMain.handle("generate-image", async (_event, { promptText, vendor, sourceImag
     return `data:image/png;base64,${Buffer.from(await imgRes.arrayBuffer()).toString("base64")}`;
   }
 
-  const client = new OpenAI({ apiKey: apiKeys[vendor] });
+  if (vendor === "flux") {
+    // Black Forest Labs FLUX async API — submit then poll
+    const apiKey = apiKeys.flux;
+    const submitRes = await fetch(`https://api.bfl.ai/v1/${model}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-key": apiKey },
+      body: JSON.stringify({ prompt: promptText, width: 1024, height: 1024 })
+    });
+    if (!submitRes.ok) {
+      const err = await submitRes.json().catch(() => ({ message: submitRes.statusText }));
+      throw new Error(err.message || `Flux error ${submitRes.status}`);
+    }
+    const submitData = await submitRes.json();
+    const pollingUrl = submitData.polling_url || `https://api.bfl.ai/v1/get_result?id=${submitData.id}`;
+    // Poll for result
+    for (let i = 0; i < 120; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      const pollRes = await fetch(pollingUrl, {
+        headers: { "x-key": apiKey }
+      });
+      if (!pollRes.ok) continue;
+      const pollData = await pollRes.json();
+      if (pollData.status === "Ready") {
+        const imgUrl = pollData.result?.sample;
+        if (!imgUrl) throw new Error("Flux did not return an image URL");
+        const imgRes = await fetch(imgUrl);
+        return `data:image/png;base64,${Buffer.from(await imgRes.arrayBuffer()).toString("base64")}`;
+      }
+      if (pollData.status === "Error" || pollData.status === "Failed" || pollData.status === "Request Moderated" || pollData.status === "Content Moderated") {
+        throw new Error(`Flux generation failed: ${pollData.status}`);
+      }
+    }
+    throw new Error("Flux image generation timed out");
+  }
+
+  if (vendor === "xai") {
+    // xAI Grok Imagine uses JSON body for both generation and editing
+    const apiKey = apiKeys.xai;
+    if (sourceImageBase64) {
+      // Image editing endpoint
+      const res = await fetch("https://api.x.ai/v1/images/edits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, prompt: promptText, image: { url: `data:image/png;base64,${sourceImageBase64}`, type: "image_url" } })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: res.statusText }));
+        throw new Error(err.error?.message || err.message || `xAI error ${res.status}`);
+      }
+      const data = await res.json();
+      const imgUrl = data.data?.[0]?.url;
+      if (!imgUrl) throw new Error("xAI did not return an image URL");
+      const imgRes = await fetch(imgUrl);
+      return `data:image/png;base64,${Buffer.from(await imgRes.arrayBuffer()).toString("base64")}`;
+    }
+    // New image generation
+    const res = await fetch("https://api.x.ai/v1/images/generations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      body: JSON.stringify({ model, prompt: promptText, n: 1 })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ message: res.statusText }));
+      throw new Error(err.error?.message || err.message || `xAI error ${res.status}`);
+    }
+    const data = await res.json();
+    const imgUrl = data.data?.[0]?.url || data.data?.[0]?.b64_json;
+    if (!imgUrl) throw new Error("xAI did not return an image");
+    if (imgUrl.startsWith("data:") || !imgUrl.startsWith("http")) {
+      return `data:image/png;base64,${imgUrl}`;
+    }
+    const imgRes = await fetch(imgUrl);
+    return `data:image/png;base64,${Buffer.from(await imgRes.arrayBuffer()).toString("base64")}`;
+  }
+
+  if (vendor === "alibaba") {
+    // Alibaba Qwen Image uses DashScope native API (not OpenAI-compatible for image gen)
+    const apiKey = apiKeys.alibaba;
+    const baseURL = vendorCfg?.baseURL || "";
+    // Derive the image generation endpoint from the configured text chat baseURL region
+    let host = "dashscope-intl.aliyuncs.com";
+    if (baseURL.includes("dashscope-us")) host = "dashscope-us.aliyuncs.com";
+    else if (baseURL.includes("dashscope-intl")) host = "dashscope-intl.aliyuncs.com";
+    const imageEndpoint = `https://${host}/api/v1/services/aigc/multimodal-generation/generation`;
+    const res = await fetch(imageEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model,
+        input: { messages: [{ role: "user", content: [{ text: promptText }] }] },
+        parameters: { size: "1024*1024", n: 1 }
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ message: res.statusText }));
+      throw new Error(err.message || `Alibaba error ${res.status}`);
+    }
+    const data = await res.json();
+    const imageUrl = data.output?.choices?.[0]?.message?.content?.[0]?.image;
+    if (!imageUrl) throw new Error("Alibaba Qwen Image did not return an image URL");
+    const imgRes = await fetch(imageUrl);
+    return `data:image/png;base64,${Buffer.from(await imgRes.arrayBuffer()).toString("base64")}`;
+  }
+
+  if (vendor === "recraft") {
+    // Recraft uses OpenAI-compatible API at external.api.recraft.ai/v1
+    const client = new OpenAI({ apiKey: apiKeys.recraft, baseURL: "https://external.api.recraft.ai/v1" });
+    const res = await client.images.generate({ model, prompt: promptText, n: 1 });
+    const imageUrl = res.data[0]?.url;
+    if (!imageUrl) throw new Error("Recraft did not return an image URL");
+    const imgRes = await fetch(imageUrl);
+    return `data:image/png;base64,${Buffer.from(await imgRes.arrayBuffer()).toString("base64")}`;
+  }
+
+  if (vendor === "fal") {
+    // fal.ai REST API — POST to https://fal.run/{model-id}
+    const apiKey = apiKeys.fal;
+    const res = await fetch(`https://fal.run/${model}`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Key ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ prompt: promptText })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ message: res.statusText }));
+      throw new Error(err.detail || err.message || `fal.ai error ${res.status}`);
+    }
+    const data = await res.json();
+    // fal.ai returns images in data.images[0].url or data.output.images[0].url
+    const imageUrl = data.images?.[0]?.url || data.output?.images?.[0]?.url;
+    if (!imageUrl) throw new Error("fal.ai did not return an image URL");
+    const imgRes = await fetch(imageUrl);
+    return `data:image/png;base64,${Buffer.from(await imgRes.arrayBuffer()).toString("base64")}`;
+  }
+
+  const client = new OpenAI({ apiKey: apiKeys[vendor], baseURL: vendorCfg?.baseURL });
 
   // If a source image is provided, use the edit endpoint
   if (sourceImageBase64) {
@@ -1228,7 +1369,7 @@ ipcMain.handle("generate-image", async (_event, { promptText, vendor, sourceImag
     try {
       const { toFile } = require("openai");
       const res = await client.images.edit({
-        model: "gpt-image-1",
+        model,
         image: await toFile(fs.createReadStream(tmpPath), "image.png", { type: "image/png" }),
         prompt: promptText,
         n: 1,
@@ -1244,7 +1385,7 @@ ipcMain.handle("generate-image", async (_event, { promptText, vendor, sourceImag
   }
 
   // Generate new image
-  const res = await client.images.generate({ model: vendorCfg.imageModel, prompt: promptText, n: 1, size: vendorCfg.imageSize });
+  const res = await client.images.generate({ model, prompt: promptText, n: 1, size: vendorCfg.imageSize });
   const b64 = res.data[0].b64_json;
   if (b64) return `data:image/png;base64,${b64}`;
   const imageUrl = res.data[0].url;

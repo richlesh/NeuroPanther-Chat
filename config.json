@@ -6,6 +6,7 @@
       "models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
       "apiKeyUrl": "https://platform.openai.com/api-keys",
       "imageGeneration": true,
+      "imageModels": ["gpt-image-1"],
       "imageModel": "gpt-image-1",
       "imageSize": "1024x1024"
     },
@@ -20,7 +21,9 @@
       "models": ["qwen-max", "qwen-plus", "qwen-turbo"],
       "apiKeyUrl": "https://www.alibabacloud.com/help/en/model-studio/get-api-key",
       "baseURL": "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
-      "imageGeneration": false
+      "imageGeneration": true,
+      "imageModels": ["qwen-image-plus", "qwen-image-max"],
+      "imageModel": "qwen-image-plus"
     },
     "deepseek": {
       "label": "DeepSeek",
@@ -42,6 +45,7 @@
       "apiKeyUrl": "https://aistudio.google.com/apikey",
       "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai",
       "imageGeneration": true,
+      "imageModels": ["imagen-4.0-generate-001", "imagen-4.0-ultra-generate-001"],
       "imageModel": "imagen-4.0-generate-001"
     },
     "stability": {
@@ -49,6 +53,7 @@
       "models": ["sd3.5-large"],
       "apiKeyUrl": "https://platform.stability.ai/account/keys",
       "imageGeneration": true,
+      "imageModels": ["sd3.5-large", "sd3.5-medium", "sd3-large"],
       "imageModel": "sd3.5-large",
       "imageOnly": true
     },
@@ -57,6 +62,7 @@
       "models": ["de7d3faf-762f-48e0-b3b7-9d0ac3a3fcf3"],
       "apiKeyUrl": "https://app.leonardo.ai/api-access",
       "imageGeneration": true,
+      "imageModels": ["de7d3faf-762f-48e0-b3b7-9d0ac3a3fcf3"],
       "imageModel": "de7d3faf-762f-48e0-b3b7-9d0ac3a3fcf3",
       "imageOnly": true
     },
@@ -65,6 +71,7 @@
       "models": ["ideogram-v3"],
       "apiKeyUrl": "https://ideogram.ai/manage-api",
       "imageGeneration": true,
+      "imageModels": ["ideogram-v3", "ideogram-v2"],
       "imageModel": "ideogram-v3",
       "imageOnly": true
     },
@@ -91,7 +98,9 @@
       "models": ["grok-3", "grok-3-mini", "grok-2"],
       "apiKeyUrl": "https://console.x.ai/team/default/api-keys",
       "baseURL": "https://api.x.ai/v1",
-      "imageGeneration": false
+      "imageGeneration": true,
+      "imageModels": ["grok-imagine-image-quality"],
+      "imageModel": "grok-imagine-image-quality"
     },
     "groq": {
       "label": "Groq",
@@ -158,6 +167,34 @@
       "apiKeyUrl": "https://ollama.com/settings/keys",
       "baseURL": "http://localhost:11434/v1",
       "imageGeneration": false
+    },
+    "recraft": {
+      "label": "Recraft",
+      "models": [],
+      "apiKeyUrl": "https://app.recraft.ai/profile/api",
+      "baseURL": "https://external.api.recraft.ai/v1",
+      "imageGeneration": true,
+      "imageModels": ["recraftv4.1", "recraftv4.1_pro", "recraftv4", "recraftv4_pro"],
+      "imageModel": "recraftv4.1",
+      "imageOnly": true
+    },
+    "flux": {
+      "label": "Flux (BFL)",
+      "models": [],
+      "apiKeyUrl": "https://dashboard.bfl.ai/",
+      "imageGeneration": true,
+      "imageModels": ["flux-2-pro-preview", "flux-2-max", "flux-2-pro", "flux-2-flex"],
+      "imageModel": "flux-2-pro-preview",
+      "imageOnly": true
+    },
+    "fal": {
+      "label": "fal.ai",
+      "models": [],
+      "apiKeyUrl": "https://fal.ai/dashboard/keys",
+      "imageGeneration": true,
+      "imageModels": ["fal-ai/flux-2/max", "fal-ai/nano-banana-2", "fal-ai/nano-banana-pro", "fal-ai/seedream/v5/lite/text-to-image", "fal-ai/recraft-v4", "fal-ai/ideogram/v4/fast"],
+      "imageModel": "fal-ai/flux-2/max",
+      "imageOnly": true
     }
   }
 }

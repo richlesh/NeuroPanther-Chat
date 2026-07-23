@@ -1,7 +1,7 @@
 {
   "name": "neuropanther-chat",
   "productName": "NeuroPanther Chat",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "NeuroPanther Chat - Chat for various LLMs",
   "main": "main.js",
   "scripts": {
