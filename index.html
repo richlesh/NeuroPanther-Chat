@@ -1025,6 +1025,11 @@
       return { title: tab.title, history: tab.history, chatLog: tab.chatLog, vendor, model };
     }
 
+    // UTC timestamp (seconds since the Unix epoch) recorded on every chat turn.
+    function nowEpoch() {
+      return Math.floor(Date.now() / 1000);
+    }
+
     function buildChatDom(chatLog, container) {
       for (const msg of chatLog) {
         if (msg.role === "user") {
@@ -1582,6 +1587,7 @@
         tabs[tabId].container.appendChild(userDiv);
         if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight;
         tab.chatLog.push({ role: "user", content: `🎨 ${text}`, images: imageFile ? [imageFile.dataUrl] : [] });
+        tab.chatLog[tab.chatLog.length - 1].timestamp = nowEpoch();
         markUnsaved(tabId);
         const thinking = addMessage("assistant", "…", tabId);
         try {
@@ -1607,6 +1613,7 @@
           thinking.appendChild(img);
           thinking.appendChild(makeImageDownloadAction(url, text));
           tab.chatLog.push({ role: "assistant", content: "", generatedImageUrl: url });
+          tab.chatLog[tab.chatLog.length - 1].timestamp = nowEpoch();
           tab.lastGeneratedImageBase64 = url.split(",")[1];
         } catch (err) {
           thinking.classList.remove("thinking-indicator");
@@ -1641,6 +1648,7 @@
         tab.container.appendChild(userDiv);
         if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight;
         tab.chatLog.push({ role: "user", content: text || "", images: files.filter(f => f.type === "image").map(f => f.dataUrl) });
+        tab.chatLog[tab.chatLog.length - 1].timestamp = nowEpoch();
         markUnsaved(tabId);
 
         // Build the user history message with inline file content
@@ -1674,10 +1682,12 @@
             ]});
             tab.history.push({ role: "assistant", content: reply });
             tab.chatLog.push({ role: "assistant", content: reply, images: [] });
+            tab.chatLog[tab.chatLog.length - 1].timestamp = nowEpoch();
           } else {
             // Text files, multiple images, or mixed — inject content as text
             tab.history.push({ role: "user", content: userText });
             tab.chatLog.push({ role: "user", content: userText, images: [] });
+            tab.chatLog[tab.chatLog.length - 1].timestamp = nowEpoch();
             if (tab.agentMode) {
               const today = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
               const langInstruction = tab.translateMode ? `IMPORTANT: Always respond in ${tab.toLang}, regardless of the language the user writes in.\n\n` : "";
@@ -1727,6 +1737,7 @@
         }
         tab.history.push({ role: "user", content: text });
         tab.chatLog.push({ role: "user", content: text, images: [] });
+        tab.chatLog[tab.chatLog.length - 1].timestamp = nowEpoch();
         markUnsaved(tabId);
         if (!tab.locked) { tab.locked = true; applyVendorLock(tab); }
         const thinking = addMessage("assistant", "…", tabId);
@@ -1773,6 +1784,7 @@
       const text = `Using ${v.label} / ${model}`;
       addMessage("info", text);
       tab.chatLog.push({ role: "info", content: text });
+      tab.chatLog[tab.chatLog.length - 1].timestamp = nowEpoch();
     }
 
     function addMessage(role, text, tabId = activeTabId) {
@@ -2032,6 +2044,7 @@
       el.appendChild(makeActions(reply));
       tab.history.push({ role: "assistant", content: reply });
       tab.chatLog.push({ role: "assistant", content: reply, images: [] });
+      tab.chatLog[tab.chatLog.length - 1].timestamp = nowEpoch();
       markUnsaved(tabId);
     }
 
@@ -2094,6 +2107,7 @@
               renderMermaidDiagrams(currentEl);
               currentEl.appendChild(makeActions(reply));
               tab.chatLog.push({ role: "assistant", content: reply, images: [] });
+              tab.chatLog[tab.chatLog.length - 1].timestamp = nowEpoch();
               markUnsaved(tabId);
             }
             resolve(calls);
@@ -2479,7 +2493,7 @@
       if (!tab || tab.chatLog.length === 0) return true;
       const savedMessages = [];
       for (const entry of tab.chatLog) {
-        const msg = { role: entry.role, content: entry.content, images: [] };
+        const msg = { role: entry.role, content: entry.content, images: [], timestamp: entry.timestamp ?? nowEpoch() };
         if (entry.generatedImageUrl) {
           try {
             const res = await fetch(entry.generatedImageUrl);
@@ -2582,7 +2596,7 @@
       if (!tab || tab.chatLog.length === 0) return;
       const messages = [];
       for (const entry of tab.chatLog) {
-        const msg = { role: entry.role, content: entry.content || "", images: [], generatedImage: false };
+        const msg = { role: entry.role, content: entry.content || "", images: [], generatedImage: false, timestamp: entry.timestamp };
         if (entry.generatedImageUrl) {
           try {
             const res = await fetch(entry.generatedImageUrl);

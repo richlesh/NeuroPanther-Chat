@@ -450,13 +450,17 @@
       if (!models || models.length === 0) models = vendors[vendor].models;
       if (!models || models.length === 0) models = vendors[vendor].imageModels || [];
       modelSel.innerHTML = "";
+      const emptyOpt = document.createElement("option");
+      emptyOpt.value = "";
+      emptyOpt.textContent = "Select a model…";
+      modelSel.appendChild(emptyOpt);
       for (const m of [...models].sort((a, b) => a.localeCompare(b))) {
         const opt = document.createElement("option");
         opt.value = m;
         opt.textContent = m;
         modelSel.appendChild(opt);
       }
-      if (savedModel && models.includes(savedModel)) modelSel.value = savedModel;
+      modelSel.value = (savedModel && models.includes(savedModel)) ? savedModel : "";
     }
 
     vendorSel.addEventListener("change", async () => {
@@ -489,7 +493,8 @@
       }
       updateLink(vendorSel.value);
       vendorSel.dataset.prev = vendorSel.value;
-      await populateModels(vendorSel.value, current.defaultModels[vendorSel.value]);
+      // Clear the model selection when the vendor changes
+      await populateModels(vendorSel.value);
     });
 
     modelSel.addEventListener("change", () => {

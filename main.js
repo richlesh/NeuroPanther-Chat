@@ -372,7 +372,16 @@ ipcMain.handle("export-markdown", async (_event, { messages, title }) => {
   let md = title ? `# ${title}\n\n` : "";
   for (const msg of messages) {
     const role = msg.role === "user" ? "**You**" : "**Assistant**";
-    md += `${role}\n\n`;
+    let header = role;
+    if (msg.timestamp != null) {
+      const ts = new Date(msg.timestamp * 1000).toLocaleString(undefined, {
+        year: "numeric", month: "short", day: "numeric",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+        timeZoneName: "short"
+      });
+      header += ` — ${ts}`;
+    }
+    md += `${header}\n\n`;
     if (msg.images?.length) {
       for (let i = 0; i < msg.images.length; i++) {
         const src = msg.images[i];

@@ -1,6 +1,6 @@
 ![app_icon_256](resources/app_icon_256.png)
 
-# NeuroPanther Chat v1.9.0
+# NeuroPanther Chat v1.11.0
 
 A cross-platform desktop chat/agent application built with Electron that supports multiple AI vendors and models.
 
