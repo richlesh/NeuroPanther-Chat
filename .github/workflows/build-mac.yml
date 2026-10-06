@@ -1,9 +1,6 @@
 name: Build and Release macOS
 
 on:
-  push:
-    tags:
-      - '*'
   workflow_dispatch:
     inputs:
       tag:

@@ -1,9 +1,6 @@
 name: Build and Release Windows
 
 on:
-  push:
-    tags:
-      - '*'
   workflow_dispatch:
     inputs:
       tag:
