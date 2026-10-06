@@ -32,12 +32,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Resolve version
-        id: ver
+      - name: Set version from tag
         shell: bash
         run: |
           RAW="${{ inputs.tag || github.ref_name }}"
-          echo "version=${RAW#v}" >> "$GITHUB_OUTPUT"
+          npm version "${RAW#v}" --no-git-tag-version --allow-same-version
 
       - name: Import Developer ID certificate
         env:
@@ -69,7 +68,7 @@ jobs:
         run: |
           KEY_FILE=$RUNNER_TEMP/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
           echo "${{ secrets.APPLE_API_KEY }}" > "$KEY_FILE"
-          APPLE_API_KEY="$KEY_FILE" ./node_modules/.bin/electron-builder --mac --${{ matrix.arch }} --publish never -c.extraMetadata.version="${{ steps.ver.outputs.version }}"
+          APPLE_API_KEY="$KEY_FILE" ./node_modules/.bin/electron-builder --mac --${{ matrix.arch }} --publish never
 
       - name: Upload DMG to release
         uses: softprops/action-gh-release@v3
