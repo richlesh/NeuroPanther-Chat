@@ -35,6 +35,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          RAW="${{ inputs.tag || github.ref_name }}"
+          echo "version=${RAW#v}" >> "$GITHUB_OUTPUT"
+
       - name: Inject license salt
         run: |
           @"
@@ -44,7 +51,7 @@ jobs:
         shell: powershell
 
       - name: Build Windows ${{ matrix.arch }} installer
-        run: ./node_modules/.bin/electron-builder --win --${{ matrix.arch }} --publish never
+        run: ./node_modules/.bin/electron-builder --win --${{ matrix.arch }} --publish never -c.extraMetadata.version="${{ steps.ver.outputs.version }}"
 
       - name: Azure login
         uses: azure/login@v2
