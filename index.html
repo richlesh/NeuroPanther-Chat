@@ -1219,7 +1219,7 @@
     const modelCache = {};  // vendor → models array
 
     async function fetchAndPopulateModels(vendor, targetModel = null) {
-      const skipCache = vendor === "ibm" || vendor === "microsoft" || vendor === "amazon" || vendor.startsWith("generic");
+      const skipCache = vendor === "ollama" || vendor === "ibm" || vendor === "microsoft" || vendor === "amazon" || vendor.startsWith("generic");
       if (!modelCache[vendor] || skipCache) {
         modelSel.innerHTML = "<option disabled>Loading\u2026</option>";
         modelCache[vendor] = await ipcRenderer.invoke("get-models-for-vendor", vendor);

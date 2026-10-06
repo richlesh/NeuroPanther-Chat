@@ -442,7 +442,7 @@
       } else if (vendor.startsWith("generic")) {
         const gKey = current.apiKeys[vendor + "ApiKey"] || "";
         const gEndpoint = current.apiKeys[vendor + "Endpoint"] || "";
-        if (gKey && gEndpoint) models = await ipcRenderer.invoke("fetch-models", { vendor, apiKey: gKey, baseURL: gEndpoint });
+        if (gEndpoint) models = await ipcRenderer.invoke("fetch-models", { vendor, apiKey: gKey, baseURL: gEndpoint });
       } else {
         const apiKey = current.apiKeys[vendor] || "";
         if (apiKey) models = await ipcRenderer.invoke("fetch-models", { vendor, apiKey });

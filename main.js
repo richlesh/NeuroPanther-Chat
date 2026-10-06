@@ -449,7 +449,7 @@ async function fetchModels(vendor, apiKey) {
 ipcMain.handle("fetch-models", async (_event, { vendor, apiKey, baseURL }) => {
   try {
     if (baseURL) {
-      const client = new OpenAI({ apiKey, baseURL });
+      const client = new OpenAI({ apiKey: apiKey || "none", baseURL });
       const res = await client.models.list();
       return res.data.map(m => m.id).sort();
     }
@@ -506,9 +506,9 @@ ipcMain.handle("get-models-for-vendor", async (_event, vendor) => {
   if (vendor.startsWith("generic")) {
     const gApiKey = apiKeys?.[vendor + "ApiKey"] || "";
     const gEndpoint = (apiKeys?.[vendor + "Endpoint"] || "").replace(/\/+$/, "");
-    if (!gApiKey || !gEndpoint) return null;
+    if (!gEndpoint) return null;
     try {
-      const client = new OpenAI({ apiKey: gApiKey, baseURL: gEndpoint });
+      const client = new OpenAI({ apiKey: gApiKey || "none", baseURL: gEndpoint });
       const res = await client.models.list();
       const models = res.data.map(m => m.id).sort();
       return models.length ? models : null;
@@ -833,7 +833,8 @@ async function handleChatStream(event, { messages, vendor, model, agentMode, sid
   if (vendor.startsWith("generic") && vendor !== "generic") {
     apiKey = settings.apiKeys?.[vendor + "ApiKey"] || "";
     const endpoint = (settings.apiKeys?.[vendor + "Endpoint"] || "").replace(/\/+$/, "");
-    if (!apiKey || !endpoint) { event.sender.send("stream-error", sid, "You need to set API Key and Endpoint in Settings before this vendor can be used."); return; }
+    if (!endpoint) { event.sender.send("stream-error", sid, "You need to set the Endpoint in Settings before this vendor can be used."); return; }
+    if (!apiKey) apiKey = "none";
     baseURL = endpoint;
   }
   if (!apiKey && vendor !== "ollama" && vendor !== "amazon" && vendor !== "microsoft" && vendor !== "ibm" && vendor !== "generic" && !vendor.startsWith("generic")) { event.sender.send("stream-error", sid, "You need to set the API key in Settings before this LLM vendor can be used."); return; }
@@ -1282,7 +1283,7 @@ ipcMain.handle("chat", async (_event, { messages, vendor: vendorOverride, model:
   let chatHeaders;
   if (vendor === "microsoft") chatHeaders = { "api-key": apiKey };
   else if (vendor === "ibm" && settings.apiKeys?.ibmProjectId) chatHeaders = { "X-IBM-Project-Id": settings.apiKeys.ibmProjectId };
-  const client = new OpenAI({ apiKey, baseURL: chatBaseURL, defaultHeaders: chatHeaders });
+  const client = new OpenAI({ apiKey: apiKey || "none", baseURL: chatBaseURL, defaultHeaders: chatHeaders });
   const res = await client.chat.completions.create({ model, messages });
   return res.choices[0].message.content;
 });
