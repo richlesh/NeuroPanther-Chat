@@ -69,9 +69,24 @@
     body.dark .dir-btn { background: #3a3a3c; color: #e0e0e0; }
     body.dark .dir-btn:hover { background: #4a4a4e; }
     #api-key-section[style*="display: none"] { display: none !important; position: absolute; }
+    .vendor-name-panel { background: #fff; color: #1e1e1e; }
+    body.dark .vendor-name-panel { background: #2c2c2e; color: #e0e0e0; }
   </style>
 </head>
 <body>
+  <!-- Modal dialog for naming a new dynamic vendor -->
+  <div id="vendor-name-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;">
+    <div class="vendor-name-panel" style="border-radius:10px;padding:20px;width:360px;max-width:90%;box-shadow:0 8px 30px rgba(0,0,0,0.4);">
+      <div id="vendor-name-title" style="font-weight:600;margin-bottom:6px;">Add Vendor</div>
+      <div style="font-size:12px;color:#888;margin-bottom:10px;">Name (letters and digits only, no spaces).</div>
+      <input id="vendor-name-input" type="text" style="width:100%;box-sizing:border-box;" placeholder="e.g. MyVendor" autocomplete="off">
+      <div id="vendor-name-error" style="color:#e03030;font-size:12px;min-height:16px;margin-top:4px;"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button id="vendor-name-cancel" class="dir-btn">Cancel</button>
+        <button id="vendor-name-ok" class="dir-btn" style="background:#0a84ff;color:#fff;">Create</button>
+      </div>
+    </div>
+  </div>
   <h1>LLM Settings</h1>
   <div>
     <label>Vendor</label>
@@ -137,6 +152,10 @@
     <label>Brave Search API Key</label>
     <input id="brave-api-key" type="password" placeholder="Enter Brave Search API key…">
     <a id="brave-key-link" href="https://api.search.brave.com" style="font-size:14px;color:#4da3ff;text-decoration:none;margin-top:4px;display:inline-block;">Get API key…</a>
+  </div>
+  <div>
+    <label>Maximum Number of Turns</label>
+    <input id="max-turns" type="number" min="1" step="1" placeholder="20">
   </div>
 <h1 style="break-before:column;">
   <!-- Translation Settings -->
@@ -231,6 +250,77 @@
     const apiKeyIn  = document.getElementById("apiKey");
     const apiKeyLink = document.getElementById("api-key-link");
 
+    // Dynamic (user-added) generic vendor helpers — mirror main.js classification.
+    const DYN_OPENAI_PREFIX = "genericopenai_";
+    const DYN_YAML_PREFIX = "genericyaml_";
+    const isYamlVendor = v => v.startsWith(DYN_YAML_PREFIX);
+    const isOpenAIGeneric = v => v.startsWith(DYN_OPENAI_PREFIX);
+    const ADD_OPENAI = "__add_generic_openai__";
+    const ADD_YAML = "__add_generic_yaml__";
+
+    // (Re)build the vendor dropdown: all vendors sorted by label, then the two
+    // "Add …" actions pinned at the bottom. `selected` keeps the chosen vendor.
+    function populateVendorOptions(selected) {
+      vendorSel.innerHTML = "";
+      for (const [key, v] of Object.entries(vendors).sort((a, b) => a[1].label.localeCompare(b[1].label))) {
+        const opt = document.createElement("option");
+        opt.value = key;
+        opt.textContent = v.label;
+        vendorSel.appendChild(opt);
+      }
+      const sep = document.createElement("option");
+      sep.disabled = true;
+      sep.textContent = "──────────";
+      vendorSel.appendChild(sep);
+      for (const [val, text] of [[ADD_OPENAI, "Add Generic (OpenAI)…"], [ADD_YAML, "Add Generic (YAML)…"]]) {
+        const opt = document.createElement("option");
+        opt.value = val;
+        opt.textContent = text;
+        vendorSel.appendChild(opt);
+      }
+      if (selected !== undefined) vendorSel.value = selected;
+    }
+
+    // Show the vendor-name modal and resolve with a validated alphanumeric name,
+    // or null if the user cancels. (Electron renderers don't support window.prompt.)
+    function askVendorName(type) {
+      return new Promise(resolve => {
+        const modal = document.getElementById("vendor-name-modal");
+        const input = document.getElementById("vendor-name-input");
+        const errEl = document.getElementById("vendor-name-error");
+        const okBtn = document.getElementById("vendor-name-ok");
+        const cancelBtn = document.getElementById("vendor-name-cancel");
+        const titleEl = document.getElementById("vendor-name-title");
+        titleEl.textContent = type === "yaml" ? "Add Generic (YAML) Vendor" : "Add Generic (OpenAI) Vendor";
+        input.value = "";
+        errEl.textContent = "";
+        modal.style.display = "flex";
+        input.focus();
+
+        function cleanup() {
+          modal.style.display = "none";
+          okBtn.removeEventListener("click", onOk);
+          cancelBtn.removeEventListener("click", onCancel);
+          input.removeEventListener("keydown", onKey);
+        }
+        function onOk() {
+          const name = input.value.trim();
+          if (!name) { errEl.textContent = "Please enter a name."; return; }
+          if (!/^[A-Za-z0-9]+$/.test(name)) { errEl.textContent = "Use letters and digits only (no spaces or symbols)."; return; }
+          cleanup();
+          resolve(name);
+        }
+        function onCancel() { cleanup(); resolve(null); }
+        function onKey(e) {
+          if (e.key === "Enter") { e.preventDefault(); onOk(); }
+          else if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+        }
+        okBtn.addEventListener("click", onOk);
+        cancelBtn.addEventListener("click", onCancel);
+        input.addEventListener("keydown", onKey);
+      });
+    }
+
     let vendors, current;
 
     ipcRenderer.invoke("settings-get-data").then(async ({ settings, VENDORS }) => {
@@ -241,12 +331,7 @@
 
       if (!current.defaultModels) current.defaultModels = {};
 
-      for (const [key, v] of Object.entries(vendors).sort((a, b) => a[1].label.localeCompare(b[1].label))) {
-        const opt = document.createElement("option");
-        opt.value = key;
-        opt.textContent = v.label;
-        vendorSel.appendChild(opt);
-      }
+      populateVendorOptions();
 
       vendorSel.value = current.vendor;
       vendorSel.dataset.prev = current.vendor;
@@ -256,6 +341,7 @@
 
       document.getElementById("working-dir").value = current.workingDir || "";
       document.getElementById("brave-api-key").value = current.apiKeys["brave"] || "";
+      document.getElementById("max-turns").value = current.maxTurns || 20;
       document.getElementById("accent-color").value      = current.accentColor    || "#5cda05";
       document.getElementById("user-bubble-color").value = current.userBubbleColor || "#5cda05";
       document.getElementById("ai-bubble-color").value   = current.aiBubbleColor   || "#2c2c2e";
@@ -407,10 +493,12 @@
         document.getElementById("ibm-endpoint").value = current.apiKeys.ibmEndpoint || "";
         document.getElementById("ibm-project-id").value = current.apiKeys.ibmProjectId || "";
         document.getElementById("ibm-key-link").href = vendors[vendor].apiKeyUrl || "#";
-      } else if (vendor === "generic") {
+      } else if (isYamlVendor(vendor)) {
         genericYamlSection.style.display = "";
-        document.getElementById("generic-yaml-api-key").value = current.apiKeys.genericYamlApiKey || "";
-      } else if (vendor.startsWith("generic")) {
+        const yamlKey = vendor + "ApiKey";
+        document.getElementById("generic-yaml-api-key").value = current.apiKeys[yamlKey] || "";
+        document.getElementById("generic-yaml-configure-btn").dataset.vendor = vendor;
+      } else if (isOpenAIGeneric(vendor)) {
         genericSection.style.display = "";
         document.getElementById("generic-api-key").value = current.apiKeys[vendor + "ApiKey"] || "";
         document.getElementById("generic-endpoint").value = current.apiKeys[vendor + "Endpoint"] || "";
@@ -436,10 +524,11 @@
         const ibmKey = current.apiKeys.ibmApiKey || "";
         const ibmEndpoint = current.apiKeys.ibmEndpoint || "";
         if (ibmKey && ibmEndpoint) models = await ipcRenderer.invoke("get-models-for-vendor", "ibm");
-      } else if (vendor === "generic") {
-        const gKey = current.apiKeys.genericYamlApiKey || "";
-        if (gKey) models = await ipcRenderer.invoke("get-models-for-vendor", "generic");
-      } else if (vendor.startsWith("generic")) {
+      } else if (isYamlVendor(vendor)) {
+        // YAML vendors may not need an API key (e.g. a local Ollama endpoint);
+        // the YAML config itself decides whether auth headers are sent.
+        models = await ipcRenderer.invoke("get-models-for-vendor", vendor);
+      } else if (isOpenAIGeneric(vendor)) {
         const gKey = current.apiKeys[vendor + "ApiKey"] || "";
         const gEndpoint = current.apiKeys[vendor + "Endpoint"] || "";
         if (gEndpoint) models = await ipcRenderer.invoke("fetch-models", { vendor, apiKey: gKey, baseURL: gEndpoint });
@@ -464,12 +553,32 @@
     }
 
     vendorSel.addEventListener("change", async () => {
+      // Intercept the two "Add …" actions.
+      if (vendorSel.value === ADD_OPENAI || vendorSel.value === ADD_YAML) {
+        const type = vendorSel.value === ADD_YAML ? "yaml" : "openai";
+        vendorSel.value = vendorSel.dataset.prev; // restore selection first
+        const name = await askVendorName(type);
+        if (!name) return; // cancelled
+        const res = await ipcRenderer.invoke("create-custom-vendor", { type, name });
+        if (!res || !res.ok) { alert(res && res.error ? res.error : "Could not create vendor."); return; }
+        // Refresh the vendor map and dropdown, then select the new vendor.
+        const data = await ipcRenderer.invoke("settings-get-data");
+        vendors = data.VENDORS;
+        current = data.settings;
+        if (!current.defaultModels) current.defaultModels = {};
+        populateVendorOptions(res.id);
+        vendorSel.dataset.prev = res.id;
+        updateLink(res.id);
+        await populateModels(res.id);
+        return;
+      }
       current.defaultModels[vendorSel.dataset.prev] = modelSel.value;
       // Save outgoing vendor's credentials
       const prev = vendorSel.dataset.prev;
-      if (prev === "generic") {
-        current.apiKeys.genericYamlApiKey = document.getElementById("generic-yaml-api-key").value;
-      } else if (prev.startsWith("generic")) {
+      if (isYamlVendor(prev)) {
+        const yamlKey = prev + "ApiKey";
+        current.apiKeys[yamlKey] = document.getElementById("generic-yaml-api-key").value;
+      } else if (isOpenAIGeneric(prev)) {
         current.apiKeys[prev + "ApiKey"]   = document.getElementById("generic-api-key").value;
         current.apiKeys[prev + "Endpoint"] = document.getElementById("generic-endpoint").value;
       } else if (prev === "microsoft") {
@@ -488,7 +597,7 @@
       }
       // Load saved model and API key for the new vendor, or clear if not set
       modelSel.innerHTML = "";
-      if (vendorSel.value !== "amazon" && vendorSel.value !== "microsoft" && vendorSel.value !== "ibm" && vendorSel.value !== "generic" && !vendorSel.value.startsWith("generic")) {
+      if (vendorSel.value !== "amazon" && vendorSel.value !== "microsoft" && vendorSel.value !== "ibm" && !vendorSel.value.startsWith("generic")) {
         apiKeyIn.value = current.apiKeys[vendorSel.value] || "";
       }
       updateLink(vendorSel.value);
@@ -525,12 +634,20 @@
     // re-fetch models when generic YAML API key changes
     let genericYamlTimer;
     document.getElementById("generic-yaml-api-key").addEventListener("input", () => {
-      current.apiKeys.genericYamlApiKey = document.getElementById("generic-yaml-api-key").value;
+      const v = vendorSel.value;
+      const yamlKey = v + "ApiKey";
+      current.apiKeys[yamlKey] = document.getElementById("generic-yaml-api-key").value;
       clearTimeout(genericYamlTimer);
       genericYamlTimer = setTimeout(() => populateModels(vendorSel.value), 800);
     });
     document.getElementById("generic-yaml-configure-btn").addEventListener("click", () => {
-      ipcRenderer.invoke("open-generic-yaml-editor");
+      ipcRenderer.invoke("open-generic-yaml-editor", vendorSel.value);
+    });
+
+    // When the YAML editor saves, re-fetch models for the current vendor so the
+    // Model dropdown updates without having to close and reopen Settings.
+    ipcRenderer.on("generic-yaml-saved", () => {
+      if (isYamlVendor(vendorSel.value)) populateModels(vendorSel.value);
     });
 
     apiKeyLink.addEventListener("click", e => {
@@ -564,7 +681,7 @@
     });
 
     document.getElementById("save-btn").addEventListener("click", () => {
-      if (vendorSel.value !== "amazon" && vendorSel.value !== "microsoft" && vendorSel.value !== "ibm" && vendorSel.value !== "generic" && !vendorSel.value.startsWith("generic")) current.apiKeys[vendorSel.value] = apiKeyIn.value;
+      if (vendorSel.value !== "amazon" && vendorSel.value !== "microsoft" && vendorSel.value !== "ibm" && !vendorSel.value.startsWith("generic")) current.apiKeys[vendorSel.value] = apiKeyIn.value;
       current.defaultModels[vendorSel.value] = modelSel.value;
       current.apiKeys["brave"] = document.getElementById("brave-api-key").value;
       // Persist credentials for the currently visible vendor section
@@ -579,9 +696,10 @@
         current.apiKeys.ibmApiKey   = document.getElementById("ibm-api-key").value;
         current.apiKeys.ibmEndpoint = document.getElementById("ibm-endpoint").value;
         current.apiKeys.ibmProjectId = document.getElementById("ibm-project-id").value;
-      } else if (vendorSel.value === "generic") {
-        current.apiKeys.genericYamlApiKey = document.getElementById("generic-yaml-api-key").value;
-      } else if (vendorSel.value.startsWith("generic")) {
+      } else if (isYamlVendor(vendorSel.value)) {
+        const yamlKey = vendorSel.value + "ApiKey";
+        current.apiKeys[yamlKey] = document.getElementById("generic-yaml-api-key").value;
+      } else if (isOpenAIGeneric(vendorSel.value)) {
         current.apiKeys[vendorSel.value + "ApiKey"]   = document.getElementById("generic-api-key").value;
         current.apiKeys[vendorSel.value + "Endpoint"] = document.getElementById("generic-endpoint").value;
       }
@@ -590,15 +708,14 @@
       delete current.apiKeys.bedrock;
       delete current.apiKeys.microsoft;
       delete current.apiKeys.ibm;
-      delete current.apiKeys.generic1;
-      delete current.apiKeys.generic2;
-      delete current.apiKeys.generic3;
       ipcRenderer.invoke("settings-save", {
         vendor: vendorSel.value,
         model: modelSel.value,
         apiKeys: current.apiKeys,
+        customVendors: current.customVendors || {},
         defaultModels: current.defaultModels,
         workingDir: document.getElementById("working-dir").value,
+        maxTurns:         (() => { const n = parseInt(document.getElementById("max-turns").value, 10); return (Number.isFinite(n) && n > 0) ? n : 20; })(),
         defaultToLang:    document.getElementById("default-to-lang").value,
         displayModelActivity: document.getElementById("display-model-activity").checked,
         theme:            document.getElementById("theme-select").value,

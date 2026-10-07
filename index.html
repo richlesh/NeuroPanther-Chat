@@ -331,6 +331,7 @@
     .tool-card-result { font-family: 'JetBrains Mono', monospace; font-size: 11px; border-radius: 6px; padding: 6px 8px; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; }
     .tool-card-btns { display: flex; gap: 8px; margin-top: 8px; }
     .tool-allow-btn { border: none; border-radius: 6px; padding: 4px 12px; font-size: 14px; cursor: pointer; }
+    .tool-always-btn { border: none; border-radius: 6px; padding: 4px 12px; font-size: 14px; cursor: pointer; }
     .tool-deny-btn  { border: none; border-radius: 6px; padding: 4px 12px; font-size: 14px; cursor: pointer; }
 
     @keyframes pulse-dim {
@@ -813,6 +814,7 @@
         locked: restore && restore.chatLog?.length > 0,
         promptText: "",
         attachedFiles: [],
+        alwaysAllowTools: new Set(),
         vendor: restore ? restore.vendor : null,
         model: restore ? restore.model : null,
         domEl: null,
@@ -1131,6 +1133,7 @@
     let defaultVendor = "";
     let displayModelActivity = true;
     let baseSystemPrompt = "";
+    let maxTurns = 20;
 
     ipcRenderer.invoke("get-system-prompt").then(p => { baseSystemPrompt = p; });
 
@@ -1151,6 +1154,8 @@
       toLangSel.value   = defaultToLang;
 
       displayModelActivity = settings.displayModelActivity !== false;
+
+      maxTurns = settings.maxTurns || 20;
 
       // apply saved colors
       applyColors(settings);
@@ -2074,7 +2079,7 @@
 
     // ── Agentic loop ─────────────────────────────────────────────────────────────
     async function runAgentLoop(tab, tabId, vendor, model, thinkingEl) {
-      const MAX_TURNS = 20;
+      const MAX_TURNS = (Number.isFinite(maxTurns) && maxTurns > 0) ? maxTurns : 20;
       let turns = 0;
       let currentEl = thinkingEl;
       addAgentActivity(tabId, "Agent started", `${vendor} / ${model}`);
@@ -2145,7 +2150,7 @@
         // hide the thinking element before showing approval cards unless it contains streamed text/thinking
         if (currentEl.classList.contains("thinking-indicator") || !currentEl.textContent.trim()) currentEl.style.display = "none";
         for (const tc of toolCalls) {
-          const approved = await showToolApproval(tab, tabId, tc);
+          const approved = tab.alwaysAllowTools?.has(tc.name) ? true : await showToolApproval(tab, tabId, tc);
           let result;
           if (approved) {
             addAgentActivity(tabId, `Running tool: ${tc.name}`, summarizeForActivity(tc.args, 800));
@@ -2194,10 +2199,11 @@
         const card = document.createElement("div");
         card.className = "tool-card";
         const argsStr = JSON.stringify(tc.args, null, 2);
-        card.innerHTML = `<div class="tool-card-header">⚡ ${tc.name}</div><div class="tool-card-args">${argsStr}</div><div class="tool-card-btns"><button class="tool-allow-btn">Allow</button><button class="tool-deny-btn">Deny</button></div>`;
+        card.innerHTML = `<div class="tool-card-header">⚡ ${tc.name}</div><div class="tool-card-args">${argsStr}</div><div class="tool-card-btns"><button class="tool-allow-btn">Allow</button><button class="tool-always-btn">Always</button><button class="tool-deny-btn">Deny</button></div>`;
         tabs[tabId].container.appendChild(card);
         if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight;
         card.querySelector(".tool-allow-btn").addEventListener("click", () => { card.querySelector(".tool-card-btns").remove(); resolve(true); });
+        card.querySelector(".tool-always-btn").addEventListener("click", () => { (tab.alwaysAllowTools || (tab.alwaysAllowTools = new Set())).add(tc.name); card.querySelector(".tool-card-btns").remove(); resolve(true); });
         card.querySelector(".tool-deny-btn").addEventListener("click",  () => { card.querySelector(".tool-card-btns").remove(); card.classList.add("denied"); resolve(false); });
       });
     }
@@ -2515,13 +2521,20 @@
     ipcRenderer.on("new-tab", () => createTab());
 
     ipcRenderer.on("settings-updated", () => {
-      ipcRenderer.invoke("get-vendors-and-settings").then(({ settings }) => {
+      ipcRenderer.invoke("get-vendors-and-settings").then(({ vendors, settings }) => {
+        // Refresh the vendor list so newly added Generic vendors appear,
+        // preserving the user's current selection and imagine mode.
+        allVendors = vendors;
         defaultToLang   = settings.defaultToLang   || "English";
         ttsVoice        = settings.ttsVoice        || "";
         displayModelActivity = settings.displayModelActivity !== false;
+        maxTurns = settings.maxTurns || 20;
         if (settings.defaultModels) Object.assign(rememberedModel, settings.defaultModels);
         rememberedModel[settings.vendor] = settings.defaultModels?.[settings.vendor] || settings.model;
         defaultVendor = settings.vendor;
+        const tab = activeTab();
+        const keepVendor = vendorSel.value || settings.vendor;
+        populateVendorSelectOnly(allVendors, keepVendor, tab ? tab.imagineMode : false);
         applyColors(settings);
         applyTheme(settings);
         applyFonts(settings);

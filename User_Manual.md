@@ -209,32 +209,37 @@ NeuroPanther Chat expects Ollama to be available at:
 http://localhost:11434/v1
 ```
 
-### Generic 1/2/3 (OpenAI-Compatible)
+### Adding Your Own Generic Vendors
 
-Three generic vendor slots allow connecting to any API that uses the OpenAI-compatible format. For each slot, enter:
+You can create your own named vendors at runtime from the **vendor dropdown in Settings**. Two "Add …" actions appear at the bottom of the vendor list:
 
-- **API Key** — your key or token for the service.
-- **Endpoint URL** — the base URL of the OpenAI-compatible API (e.g., `https://api.example.com/v1`).
+#### Add Generic (OpenAI)
 
-Models are fetched automatically from the endpoint's `/models` route.
+For any API that uses the OpenAI-compatible format:
 
-### Generic (YAML)
+1. In Settings, open the **vendor dropdown** and choose **Add Generic (OpenAI)…**.
+2. Enter a **name** when prompted (letters and digits only — no spaces or symbols). The vendor appears in the list as `<Name> (OpenAI)`.
+3. Fill in the vendor's fields:
+   - **Endpoint URL** — the base URL of the OpenAI-compatible API (e.g., `https://api.example.com/v1`). Required.
+   - **API Key** — your key or token. Optional — leave blank for keyless local servers such as Ollama.
+4. Models are fetched automatically from the endpoint's `/models` route.
 
-The Generic (YAML) vendor allows connecting to any LLM API — not just OpenAI-compatible ones — by defining the HTTP request and response format in a YAML configuration file.
+#### Add Generic (YAML)
 
-To set up the Generic (YAML) vendor:
+For any LLM API — not just OpenAI-compatible ones — by defining the HTTP request and response format in a YAML configuration file:
 
-1. Select **Generic (YAML)** as the vendor in Settings.
-2. Enter your **API Key / Token** for the target service.
-3. Click **Configure YAML…** to open the YAML editor.
-4. Edit the YAML configuration to match your LLM provider's API format.
-5. Click **Save** in the YAML editor.
-6. Models should appear in the Model dropdown (if a Models section is configured).
+1. In Settings, open the **vendor dropdown** and choose **Add Generic (YAML)…**.
+2. Enter a **name** when prompted (letters and digits only). The vendor appears in the list as `<Name> (YAML)`.
+3. (Optional) Enter an **API Key / Token** if the target service needs one. Leave blank for keyless endpoints — the YAML file's headers decide whether and how to authenticate.
+4. Click **Configure YAML…** to open the YAML editor.
+5. Edit the YAML configuration to match your LLM provider's API format.
+6. Click **Save** in the YAML editor.
+7. Models should appear in the Model dropdown (if a `Models` section is configured).
 
-The YAML configuration file is stored at:
+Each added vendor is sorted alphabetically into the vendor list in both Settings and the main window, and stores its own credentials. Vendor definitions are saved in `~/.neuropanther-chat-settings.json`; each YAML vendor's configuration is stored one file per vendor at:
 
 ```text
-~/.neuropanther-chat-generic.yml
+~/.neuropanther-chat-config/<Name>.yml
 ```
 
 #### YAML Configuration Sections
@@ -341,8 +346,7 @@ Supported configured vendors include:
 - Stability AI
 - Leonardo
 - Ideogram
-- Generic 1/2/3 (OpenAI-compatible)
-- Generic (YAML)
+- Your own named vendors added via **Add Generic (OpenAI)** and **Add Generic (YAML)** (see "Adding Your Own Generic Vendors")
 - Ollama
 
 Not all vendors support every feature. For example, some vendors are chat providers, while others are image-only providers.
@@ -357,8 +361,7 @@ Common chat vendors include:
 - DeepSeek
 - Alibaba
 - Meta
-- Generic 1/2/3 (OpenAI-compatible endpoints)
-- Generic (YAML) (any LLM API with custom configuration)
+- Your own named vendors added via **Add Generic (OpenAI)** (OpenAI-compatible endpoints) and **Add Generic (YAML)** (any LLM API with custom configuration)
 - Ollama
 
 ### Image Generation Vendors
@@ -815,7 +818,8 @@ Check the following:
 2. The URI, headers, and body match your target API's requirements.
 3. The `Response.ContentPath` correctly points to the response text in the API's JSON response.
 4. If using Auth token exchange, verify the `TokenURI`, `Body`, and `Response.TokenPath` are correct.
-5. Ensure the API key is entered in Settings.
+5. If the target service requires authentication, ensure the API key/token is entered in Settings and that the YAML `Headers` reference it (e.g. `Authorization: "Bearer ${AUTH_TOKEN}"`). A key is **not** required for keyless endpoints such as a local Ollama server.
+6. Verify the `URI` path is exact. For example, an OpenAI-compatible chat endpoint is `.../v1/chat/completions` (not `.../v1/chat/conversation`); a wrong path returns a 404.
 
 You can click **Reset to Defaults** in the YAML editor to restore the default template and start over.
 

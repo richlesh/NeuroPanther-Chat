@@ -2,7 +2,8 @@
  * Generic vendor YAML configuration manager for custom LLM API endpoints.
  * Port of PurplePlatypus GenericVendorConfig.java to Node.js.
  *
- * The YAML is stored at ~/.neuropanther-chat-generic.yml and defines how to
+ * Each user-added YAML vendor stores its configuration at
+ * ~/.neuropanther-chat-config/<Name>.yml and defines how to
  * call a chat/prompt API and a models-listing API with configurable request
  * format, headers, and response parsing via JSONPath-like expressions.
  *
@@ -21,6 +22,18 @@ const nodeCrypto = require("crypto");
 
 const CONFIG_FILENAME = ".neuropanther-chat-generic.yml";
 const CONFIG_PATH = path.join(os.homedir(), CONFIG_FILENAME);
+
+// Directory holding per-vendor YAML configs for dynamically added YAML vendors.
+// Each dynamic YAML vendor stores its config at CONFIG_DIR/<Name>.yml
+const CONFIG_DIR = path.join(os.homedir(), ".neuropanther-chat-config");
+
+/**
+ * Resolve the on-disk YAML path for a dynamic YAML vendor name.
+ * The file is stored at ~/.neuropanther-chat-config/<Name>.yml
+ */
+function configPathForName(name) {
+  return path.join(CONFIG_DIR, `${name}.yml`);
+}
 
 // Default YAML template loaded from resources
 let DEFAULT_YAML = "";
@@ -66,12 +79,64 @@ function load() {
 }
 
 /**
- * Load the raw YAML string from disk; returns default if file doesn't exist.
+ * Parse a YAML string into { promptConfig, modelsConfig, authConfig }.
+ * Used for per-vendor (dynamic YAML) configs that must not clobber the
+ * module-global singleton state used by the legacy "generic" vendor.
  */
-function loadYamlString() {
-  if (fs.existsSync(CONFIG_PATH)) {
+function parseConfig(yamlContent) {
+  try {
+    const root = yaml.load(yamlContent);
+    if (root) {
+      return { promptConfig: root.Prompt || null, modelsConfig: root.Models || null, authConfig: root.Auth || null };
+    }
+  } catch {
+    // fall through
+  }
+  return { promptConfig: null, modelsConfig: null, authConfig: null };
+}
+
+// Per-vendor auth-token caches, keyed by config path, so a dynamic YAML
+// vendor's token exchange does not collide with the singleton's cache.
+const perVendorTokenCache = new Map();
+
+/**
+ * Run fn with the module-global config/auth state temporarily replaced by the
+ * config parsed from configPath. Restores all swapped state afterwards.
+ * This lets dynamic YAML vendors reuse the exact same code path as the
+ * singleton "generic" vendor. Calls are awaited sequentially per request.
+ */
+async function withConfig(configPath, fn) {
+  const parsed = parseConfig(loadYamlString(configPath));
+  const savedPrompt = promptConfig, savedModels = modelsConfig, savedAuth = authConfig;
+  const savedToken = cachedAccessToken, savedExpiry = tokenExpiryTime;
+  const cache = perVendorTokenCache.get(configPath) || { token: null, expiry: 0 };
+  promptConfig = parsed.promptConfig;
+  modelsConfig = parsed.modelsConfig;
+  authConfig = parsed.authConfig;
+  cachedAccessToken = cache.token;
+  tokenExpiryTime = cache.expiry;
+  try {
+    return await fn();
+  } finally {
+    // persist this vendor's token cache, then restore singleton state
+    perVendorTokenCache.set(configPath, { token: cachedAccessToken, expiry: tokenExpiryTime });
+    promptConfig = savedPrompt;
+    modelsConfig = savedModels;
+    authConfig = savedAuth;
+    cachedAccessToken = savedToken;
+    tokenExpiryTime = savedExpiry;
+  }
+}
+
+/**
+ * Load the raw YAML string from disk; returns default if file doesn't exist.
+ * If configPath is provided, loads that file instead of the default singleton path.
+ */
+function loadYamlString(configPath) {
+  const target = configPath || CONFIG_PATH;
+  if (fs.existsSync(target)) {
     try {
-      return fs.readFileSync(CONFIG_PATH, "utf8");
+      return fs.readFileSync(target, "utf8");
     } catch {
       return DEFAULT_YAML;
     }
@@ -81,10 +146,13 @@ function loadYamlString() {
 
 /**
  * Save the given YAML string to disk.
+ * If configPath is provided, writes that file instead of the default singleton path.
  */
-function saveYamlString(yamlStr) {
+function saveYamlString(yamlStr, configPath) {
+  const target = configPath || CONFIG_PATH;
   try {
-    fs.writeFileSync(CONFIG_PATH, yamlStr, "utf8");
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, yamlStr, "utf8");
   } catch {
     // Silently fail — non-critical
   }
@@ -248,7 +316,17 @@ async function resolveAuthToken(rawAuthToken) {
  * @param {Array} messages - full conversation history (array of {role, content} objects)
  * @returns {Promise<string>} the extracted response content
  */
-async function callPrompt(authToken, model, prompt, messages) {
+async function callPrompt(authToken, model, prompt, messages, configPath) {
+  // For dynamic (per-vendor) YAML configs, temporarily swap in that vendor's
+  // parsed config and auth-token cache so we reuse the exact same code path
+  // as the legacy singleton "generic" vendor without clobbering its state.
+  if (configPath) {
+    return await withConfig(configPath, () => callPromptInternal(authToken, model, prompt, messages));
+  }
+  return await callPromptInternal(authToken, model, prompt, messages);
+}
+
+async function callPromptInternal(authToken, model, prompt, messages) {
   if (!promptConfig) {
     throw new Error("Generic vendor not configured. Use Configure in Settings.");
   }
@@ -283,7 +361,14 @@ async function callPrompt(authToken, model, prompt, messages) {
  * @param {string} authToken - the API key / auth token
  * @returns {Promise<Array<string>>} list of model ID strings
  */
-async function fetchModels(authToken) {
+async function fetchModels(authToken, configPath) {
+  if (configPath) {
+    return await withConfig(configPath, () => fetchModelsInternal(authToken));
+  }
+  return await fetchModelsInternal(authToken);
+}
+
+async function fetchModelsInternal(authToken) {
   if (!modelsConfig) return [];
 
   try {
@@ -654,4 +739,6 @@ module.exports = {
   fetchModels,
   DEFAULT_YAML,
   CONFIG_PATH,
+  CONFIG_DIR,
+  configPathForName,
 };

@@ -93,6 +93,8 @@ body {
 .tool-card-result { color: #333; background: #f5f5f5; }
 .tool-allow-btn { background: #c8e6c9; color: #2e7d32; }
 .tool-allow-btn:hover { background: #a5d6a7; }
+.tool-always-btn { background: #bbdefb; color: #1565c0; }
+.tool-always-btn:hover { background: #90caf9; }
 .tool-deny-btn { background: #ffcdd2; color: #c53030; }
 .tool-deny-btn:hover { background: #ef9a9a; }
 

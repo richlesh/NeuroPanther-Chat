@@ -1,6 +1,6 @@
 ![app_icon_256](resources/app_icon_256.png)
 
-# NeuroPanther Chat v1.10.0
+# NeuroPanther Chat v1.11.0
 
 A cross-platform desktop chat/agent application built with Electron that supports multiple AI vendors and models.
 
@@ -27,8 +27,8 @@ Connect to any of the following AI providers:
 - **Mistral** — Mistral Large, Medium, Small, Open Mistral Nemo
 - **Cerebras** — Llama 4 Scout, Llama 3.3 70B, Qwen 3 32B
 - **Moonshot AI** — Kimi K2, Moonshot v1 (128k, 32k, 8k context)
-- **Generic 1/2/3** — Connect to any OpenAI-compatible API with custom endpoint and key
-- **Generic (YAML)** — Connect to any LLM API with fully customizable YAML-driven HTTP request/response configuration
+- **Add Generic (OpenAI)** — Create one or more named vendors that connect to any OpenAI-compatible API with a custom endpoint and (optional) key
+- **Add Generic (YAML)** — Create one or more named vendors that connect to any LLM API using a fully customizable YAML-driven HTTP request/response configuration
 - **Ollama** — Local models (requires Ollama installed and running)
 
 ### Chat
@@ -135,7 +135,14 @@ Right-click any image in the chat to:
 - Settings are saved to `~/.neuropanther-chat-settings.json`
 
 ### Vendor Configuration
-Vendors, models, and API key URLs are defined in `config.json` making it easy to add new vendors or models without changing any code. Three generic vendor slots allow connecting to any OpenAI-compatible API. A YAML-configured generic vendor allows connecting to any LLM API with fully custom HTTP request/response formats, optional OAuth/IAM token exchange, and configurable model listing.
+Vendors, models, and API key URLs are defined in `config.json`, making it easy to add new built-in vendors or models without changing any code.
+
+You can also add your own vendors at runtime from the **vendor dropdown in Settings**:
+
+- **Add Generic (OpenAI)** — prompts for a name (letters and digits only) and creates a named vendor that connects to any OpenAI-compatible API. You supply an **Endpoint URL** and an optional **API Key**; models are fetched live from the endpoint. (A key is not required for keyless local servers such as Ollama.)
+- **Add Generic (YAML)** — prompts for a name and creates a named vendor driven by a YAML configuration file that describes the HTTP request/response format, headers, optional OAuth/IAM token exchange, and model listing. Click **Configure YAML…** to edit it.
+
+Each added vendor appears in the vendor list (sorted alphabetically) in both Settings and the main window, and stores its own credentials. YAML vendor configurations are stored one file per vendor at `~/.neuropanther-chat-config/<Name>.yml`.
 
 ### System Prompt
 The base system prompt is loaded from `resources/system_prompt.md` at startup. Edit this file to customize the AI's default behavior, supported output formats, and instructions across all vendors. The system prompt is automatically combined with agent and translation instructions as needed.

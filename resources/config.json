@@ -143,30 +143,6 @@
       "baseURL": "https://api.moonshot.ai/v1",
       "imageGeneration": false
     },
-    "generic1": {
-      "label": "Generic 1 (OpenAI)",
-      "models": [],
-      "apiKeyUrl": "",
-      "imageGeneration": false
-    },
-    "generic2": {
-      "label": "Generic 2 (OpenAI)",
-      "models": [],
-      "apiKeyUrl": "",
-      "imageGeneration": false
-    },
-    "generic3": {
-      "label": "Generic 3 (OpenAI)",
-      "models": [],
-      "apiKeyUrl": "",
-      "imageGeneration": false
-    },
-    "generic": {
-      "label": "Generic (YAML)",
-      "models": [],
-      "apiKeyUrl": "",
-      "imageGeneration": false
-    },
     "ollama": {
       "label": "Ollama",
       "models": [],

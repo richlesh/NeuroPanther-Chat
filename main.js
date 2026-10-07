@@ -11,6 +11,56 @@ const { load, save, VENDORS } = require("./settings");
 const { expectedLicenseKey, isValidLicense } = require("./utilities.js");
 const genericVendorConfig = require("./generic-vendor-config");
 
+// ── Dynamic (user-added) generic vendors ──────────────────────────────────────
+// Users can add named OpenAI-compatible or YAML vendors via Settings. They are
+// stored in settings.customVendors keyed by a prefixed id and routed through
+// dedicated OpenAI-compatible or YAML code paths.
+//   OpenAI-compat dynamic id: "genericopenai_<Name>"  label "<Name> (OpenAI)"
+//   YAML dynamic id:          "genericyaml_<Name>"     label "<Name> (YAML)"
+const DYN_OPENAI_PREFIX = "genericopenai_";
+const DYN_YAML_PREFIX = "genericyaml_";
+
+// A YAML-driven vendor (dynamic genericyaml_*)
+function isYamlVendor(v) {
+  return v.startsWith(DYN_YAML_PREFIX);
+}
+// An OpenAI-compatible generic vendor (dynamic genericopenai_*)
+function isOpenAIGeneric(v) {
+  return v.startsWith(DYN_OPENAI_PREFIX);
+}
+// Any generic vendor (either flavour)
+function isGenericVendor(v) {
+  return isYamlVendor(v) || isOpenAIGeneric(v);
+}
+// The on-disk YAML path for a dynamic YAML vendor id (null for the singleton/non-YAML)
+function yamlConfigPathForVendor(v) {
+  if (v.startsWith(DYN_YAML_PREFIX)) {
+    return genericVendorConfig.configPathForName(v.slice(DYN_YAML_PREFIX.length));
+  }
+  return null; // singleton "generic" uses the module default path
+}
+// Extract the display name from a dynamic vendor id
+function dynVendorName(v) {
+  if (v.startsWith(DYN_OPENAI_PREFIX)) return v.slice(DYN_OPENAI_PREFIX.length);
+  if (v.startsWith(DYN_YAML_PREFIX)) return v.slice(DYN_YAML_PREFIX.length);
+  return v;
+}
+// Build the full vendor map (static VENDORS + user-added customVendors) for the UI.
+function mergedVendors() {
+  const settings = load();
+  const custom = settings.customVendors || {};
+  const out = { ...VENDORS };
+  for (const [id, def] of Object.entries(custom)) {
+    out[id] = {
+      label: def.label || id,
+      models: [],
+      apiKeyUrl: "",
+      imageGeneration: false,
+    };
+  }
+  return out;
+}
+
 function openExternal(url) {
   if (process.platform === "linux") {
     const child = spawn("xdg-open", [url], { detached: true, stdio: "ignore" });
@@ -462,7 +512,7 @@ ipcMain.handle("fetch-models", async (_event, { vendor, apiKey, baseURL }) => {
 ipcMain.handle("get-models-for-vendor", async (_event, vendor) => {
   const { apiKeys } = load();
   const apiKey = apiKeys?.[vendor] || "";
-  if (!apiKey && vendor !== "ollama" && vendor !== "amazon" && vendor !== "microsoft" && vendor !== "ibm" && vendor !== "generic" && !vendor.startsWith("generic")) return null;
+  if (!apiKey && vendor !== "ollama" && vendor !== "amazon" && vendor !== "microsoft" && vendor !== "ibm" && !vendor.startsWith("generic")) return null;
   if (vendor === "amazon") {
     if (!apiKeys?.amazonAccessKey || !apiKeys?.amazonSecretKey) return null;
     return VENDORS[vendor]?.models || null;
@@ -492,18 +542,17 @@ ipcMain.handle("get-models-for-vendor", async (_event, vendor) => {
       return VENDORS[vendor]?.models || null;
     }
   }
-  if (vendor === "generic") {
-    const gApiKey = apiKeys?.genericYamlApiKey || "";
-    if (!gApiKey) return null;
+  if (isYamlVendor(vendor)) {
+    const gApiKey = apiKeys?.[vendor + "ApiKey"] || "";
     try {
-      genericVendorConfig.load();
-      const models = await genericVendorConfig.fetchModels(gApiKey);
+      const configPath = yamlConfigPathForVendor(vendor);
+      const models = await genericVendorConfig.fetchModels(gApiKey, configPath);
       return models.length ? models : null;
     } catch {
       return null;
     }
   }
-  if (vendor.startsWith("generic")) {
+  if (isOpenAIGeneric(vendor)) {
     const gApiKey = apiKeys?.[vendor + "ApiKey"] || "";
     const gEndpoint = (apiKeys?.[vendor + "Endpoint"] || "").replace(/\/+$/, "");
     if (!gEndpoint) return null;
@@ -535,7 +584,7 @@ ipcMain.handle("ollama-available", async () => {
   }
 });
 
-ipcMain.handle("settings-get-data", () => ({ settings: load(), VENDORS }));
+ipcMain.handle("settings-get-data", () => ({ settings: load(), VENDORS: mergedVendors() }));
 
 ipcMain.handle("get-vendors-and-settings", (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
@@ -543,7 +592,7 @@ ipcMain.handle("get-vendors-and-settings", (event) => {
   if (pending) pendingLoadData.delete(win.id);
   const openFile = pendingOpenFile;
   pendingOpenFile = null;
-  return { vendors: VENDORS, settings: load(), pendingLoad: pending || openFile || null };
+  return { vendors: mergedVendors(), settings: load(), pendingLoad: pending || openFile || null };
 });
 
 ipcMain.handle("get-config", () => {
@@ -572,8 +621,11 @@ ipcMain.handle("settings-cancel", () => settingsWin?.close());
 
 // ── Generic (YAML) vendor editor ──────────────────────────────────────────────
 let genericEditorWin;
+let genericEditorConfigPath = null; // null => singleton "generic" vendor
 
-ipcMain.handle("open-generic-yaml-editor", () => {
+ipcMain.handle("open-generic-yaml-editor", (_e, vendor) => {
+  // vendor is a dynamic YAML vendor id (genericyaml_<Name>)
+  genericEditorConfigPath = vendor ? yamlConfigPathForVendor(vendor) : null;
   if (genericEditorWin) { genericEditorWin.focus(); return; }
   genericEditorWin = new BrowserWindow({
     width: 700,
@@ -591,14 +643,58 @@ ipcMain.handle("open-generic-yaml-editor", () => {
     const theme = settings.theme || "system";
     const isDark = theme === "dark";
     genericEditorWin.webContents.send("set-theme", isDark ? "dark" : "light");
-    genericEditorWin.webContents.send("load-yaml", genericVendorConfig.loadYamlString());
+    genericEditorWin.webContents.send("load-yaml", genericVendorConfig.loadYamlString(genericEditorConfigPath));
   });
   genericEditorWin.on("closed", () => { genericEditorWin = null; });
 });
 
 ipcMain.handle("save-generic-yaml", (_e, yamlStr) => {
-  genericVendorConfig.saveYamlString(yamlStr);
-  genericVendorConfig.load();
+  genericVendorConfig.saveYamlString(yamlStr, genericEditorConfigPath);
+  if (!genericEditorConfigPath) genericVendorConfig.load();
+  // Tell the Settings window to refresh its model list for the edited vendor.
+  settingsWin?.webContents.send("generic-yaml-saved");
+});
+
+// Create a new user-added (dynamic) generic vendor.
+//   type: "openai" | "yaml"; name: alphanumeric string
+// Returns { ok, id, label } or { ok:false, error }
+ipcMain.handle("create-custom-vendor", (_e, { type, name }) => {
+  const clean = String(name || "").trim();
+  if (!/^[A-Za-z0-9]+$/.test(clean)) {
+    return { ok: false, error: "Name must be alphanumeric (letters and digits only, no spaces)." };
+  }
+  const settings = load();
+  const custom = settings.customVendors || {};
+  const prefix = type === "yaml" ? DYN_YAML_PREFIX : DYN_OPENAI_PREFIX;
+  const id = prefix + clean;
+  const suffix = type === "yaml" ? "(YAML)" : "(OpenAI)";
+  const label = `${clean} ${suffix}`;
+  // Reject duplicate id or duplicate label against built-ins/customs
+  const existingLabels = new Set([
+    ...Object.values(VENDORS).map(v => v.label),
+    ...Object.values(custom).map(v => v.label),
+  ]);
+  if (custom[id] || VENDORS[id]) {
+    return { ok: false, error: `A vendor named "${clean}" already exists.` };
+  }
+  if (existingLabels.has(label)) {
+    return { ok: false, error: `A vendor labelled "${label}" already exists.` };
+  }
+  custom[id] = { label, type: (type === "yaml" ? "yaml" : "openai"), name: clean };
+  settings.customVendors = custom;
+  // For YAML vendors, seed the per-vendor config file with the default template.
+  if (type === "yaml") {
+    const cfgPath = yamlConfigPathForVendor(id);
+    if (cfgPath && !fs.existsSync(cfgPath)) {
+      genericVendorConfig.saveYamlString(genericVendorConfig.DEFAULT_YAML, cfgPath);
+    }
+  }
+  save(settings);
+  // Notify all windows (e.g. the main chat window) so their vendor lists refresh.
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send("settings-updated");
+  }
+  return { ok: true, id, label };
 });
 
 ipcMain.handle("close-generic-yaml-editor", () => {
@@ -825,19 +921,20 @@ async function handleChatStream(event, { messages, vendor, model, agentMode, sid
     defaultHeaders = { ...(projectId ? { "X-IBM-Project-Id": projectId } : {}) };
   }
   // Generic (YAML) vendor: use non-streaming call via generic-vendor-config
-  if (vendor === "generic") {
-    apiKey = settings.apiKeys?.genericYamlApiKey || "";
-    if (!apiKey) { event.sender.send("stream-error", sid, "You need to set the API Key in Settings before the Generic (YAML) vendor can be used."); return; }
+  if (isYamlVendor(vendor)) {
+    apiKey = settings.apiKeys?.[vendor + "ApiKey"] || "";
+    // No key requirement: the YAML config's Headers decide whether auth is sent
+    // (e.g. a local Ollama endpoint needs none).
   }
   // Generic vendors: resolve credentials
-  if (vendor.startsWith("generic") && vendor !== "generic") {
+  if (isOpenAIGeneric(vendor)) {
     apiKey = settings.apiKeys?.[vendor + "ApiKey"] || "";
     const endpoint = (settings.apiKeys?.[vendor + "Endpoint"] || "").replace(/\/+$/, "");
     if (!endpoint) { event.sender.send("stream-error", sid, "You need to set the Endpoint in Settings before this vendor can be used."); return; }
     if (!apiKey) apiKey = "none";
     baseURL = endpoint;
   }
-  if (!apiKey && vendor !== "ollama" && vendor !== "amazon" && vendor !== "microsoft" && vendor !== "ibm" && vendor !== "generic" && !vendor.startsWith("generic")) { event.sender.send("stream-error", sid, "You need to set the API key in Settings before this LLM vendor can be used."); return; }
+  if (!apiKey && vendor !== "ollama" && vendor !== "amazon" && vendor !== "microsoft" && vendor !== "ibm" && !vendor.startsWith("generic")) { event.sender.send("stream-error", sid, "You need to set the API key in Settings before this LLM vendor can be used."); return; }
 
   const tools = agentMode ? (vendor === "anthropic" ? ANTHROPIC_TOOLS : AGENT_TOOLS) : undefined;
 
@@ -846,12 +943,12 @@ async function handleChatStream(event, { messages, vendor, model, agentMode, sid
   const useNonStreaming = vendor === "google" && hasToolResults;
 
   try {
-    if (vendor === "generic") {
+    if (isYamlVendor(vendor)) {
       // Generic (YAML) vendor — non-streaming via custom HTTP
-      genericVendorConfig.load();
       const lastPrompt = [...messages].reverse().find(m => m.role === "user")?.content || "";
       const plainMessages = messages.map(m => ({ role: m.role, content: typeof m.content === "string" ? m.content : (Array.isArray(m.content) ? m.content.map(p => p.text || "").join("") : "") }));
-      const content = await genericVendorConfig.callPrompt(apiKey, model, lastPrompt, plainMessages);
+      const configPath = yamlConfigPathForVendor(vendor);
+      const content = await genericVendorConfig.callPrompt(apiKey, model, lastPrompt, plainMessages, configPath);
       event.sender.send("stream-done", sid, content || "");
       delete activeAborts[sid];
       return;
@@ -1197,15 +1294,15 @@ ipcMain.handle("chat", async (_event, { messages, vendor: vendorOverride, model:
     apiKey = settings.apiKeys?.microsoftApiKey || "";
     if (!apiKey || !settings.apiKeys?.microsoftEndpoint) throw new Error("You need to set Azure API Key and Endpoint in Settings before Microsoft can be used.");
   }
-  if (!apiKey && vendor !== "ollama" && vendor !== "amazon" && vendor !== "microsoft" && vendor !== "ibm" && vendor !== "generic" && !vendor.startsWith("generic")) throw new Error("You need to set the API key in Settings before this LLM vendor can be used.");
+  if (!apiKey && vendor !== "ollama" && vendor !== "amazon" && vendor !== "microsoft" && vendor !== "ibm" && !vendor.startsWith("generic")) throw new Error("You need to set the API key in Settings before this LLM vendor can be used.");
 
-  if (vendor === "generic") {
-    apiKey = settings.apiKeys?.genericYamlApiKey || "";
-    if (!apiKey) throw new Error("You need to set the API Key in Settings before the Generic (YAML) vendor can be used.");
-    genericVendorConfig.load();
+  if (isYamlVendor(vendor)) {
+    apiKey = settings.apiKeys?.[vendor + "ApiKey"] || "";
+    // No key requirement: the YAML config's Headers decide whether auth is sent.
     const lastPrompt = [...messages].reverse().find(m => m.role === "user")?.content || "";
     const plainMessages = messages.map(m => ({ role: m.role, content: typeof m.content === "string" ? m.content : (Array.isArray(m.content) ? m.content.map(p => p.text || "").join("") : "") }));
-    return await genericVendorConfig.callPrompt(apiKey, model, lastPrompt, plainMessages);
+    const configPath = yamlConfigPathForVendor(vendor);
+    return await genericVendorConfig.callPrompt(apiKey, model, lastPrompt, plainMessages, configPath);
   }
 
   if (vendor === "amazon") {
@@ -1274,7 +1371,7 @@ ipcMain.handle("chat", async (_event, { messages, vendor: vendorOverride, model:
   } else if (vendor === "ibm") {
     apiKey = settings.apiKeys?.ibmApiKey || "";
     chatBaseURL = `${(settings.apiKeys?.ibmEndpoint || "").replace(/\/+$/, "")}/ml/gateway/v1`;
-  } else if (vendor.startsWith("generic") && vendor !== "generic") {
+  } else if (isOpenAIGeneric(vendor)) {
     apiKey = settings.apiKeys?.[vendor + "ApiKey"] || "";
     chatBaseURL = (settings.apiKeys?.[vendor + "Endpoint"] || "").replace(/\/+$/, "");
   } else {
