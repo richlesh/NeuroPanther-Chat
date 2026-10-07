@@ -602,8 +602,8 @@
       }
       updateLink(vendorSel.value);
       vendorSel.dataset.prev = vendorSel.value;
-      // Clear the model selection when the vendor changes
-      await populateModels(vendorSel.value);
+      // Restore the saved default model for the newly selected vendor (if any).
+      await populateModels(vendorSel.value, current.defaultModels[vendorSel.value]);
     });
 
     modelSel.addEventListener("change", () => {
