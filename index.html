@@ -1695,9 +1695,10 @@
             tab.chatLog[tab.chatLog.length - 1].timestamp = nowEpoch();
             if (tab.agentMode) {
               const today = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+              const todayLine = `Today is ${new Date().toUTCString()}.`;
               const langInstruction = tab.translateMode ? `IMPORTANT: Always respond in ${tab.toLang}, regardless of the language the user writes in.\n\n` : "";
               const agentInstruction = `You are a helpful AI assistant with access to tools. Today's date is ${today}. Use tools as needed to answer the user's request.`;
-              const sysContent = `${langInstruction}${agentInstruction}${baseSystemPrompt ? "\n\n" + baseSystemPrompt : ""}`;
+              const sysContent = `${langInstruction}${agentInstruction}${baseSystemPrompt ? "\n\n" + baseSystemPrompt : ""}\n\n${todayLine}`;
               if (!tab.history.length || tab.history[0].role !== "system") {
                 tab.history.unshift({ role: "system", content: sysContent });
               } else {
@@ -1705,14 +1706,13 @@
               }
               await runAgentLoop(tab, tabId, vendor, model, thinking);
             } else {
+              const todayLine = `Today is ${new Date().toUTCString()}.`;
               const langInstruction = tab.translateMode ? `IMPORTANT: Always respond in ${tab.toLang}, regardless of the language the user writes in.` : "";
-              if (baseSystemPrompt || langInstruction) {
-                const sysContent = [langInstruction, baseSystemPrompt].filter(Boolean).join("\n\n");
-                if (!tab.history.length || tab.history[0].role !== "system") {
-                  tab.history.unshift({ role: "system", content: sysContent });
-                } else {
-                  tab.history[0].content = sysContent;
-                }
+              const sysContent = [langInstruction, baseSystemPrompt, todayLine].filter(Boolean).join("\n\n");
+              if (!tab.history.length || tab.history[0].role !== "system") {
+                tab.history.unshift({ role: "system", content: sysContent });
+              } else {
+                tab.history[0].content = sysContent;
               }
               await runStreaming(tab, tabId, vendor, model, thinking);
             }
