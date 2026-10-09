@@ -470,6 +470,10 @@
     }
     .icon-btn.active { background: var(--accent); color: #fff; }
     .icon-btn.recording { background: #ff453a; color: #fff; animation: pulse-dim 1s ease-in-out infinite; }
+    /* Hovering an enabled icon button tints its icon with the highlight color.
+       Disabled buttons stay grayed out (no :hover tint). Buttons already toggled on
+       (.active) or recording keep their white icon on the colored background. */
+    .icon-btn:not(:disabled):not(.active):not(.recording):hover { color: var(--accent); }
     .icon-btn svg { pointer-events: none; }
 
     /* C-clamp compress icon. The C-frame and rounded-rectangle pad are fixed. The
@@ -696,7 +700,7 @@
              position just under the top arm. Translates straight down to close. -->
         <g class="clamp-tee">
           <path d="M8 8h8"/>
-          <path d="M12 8v4"/>
+          <path d="M12 8v8"/>
         </g>
       </svg>
     </button>
