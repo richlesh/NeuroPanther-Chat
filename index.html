@@ -395,6 +395,40 @@
       max-height: 160px;
       overflow-y: auto;
     }
+    .context-warning {
+      align-self: center;
+      max-width: 90%;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border: 1px solid #c47f00;
+      background: rgba(196, 127, 0, 0.12);
+      color: #e0e0e0;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .context-warning .context-warning-text { flex: 1; }
+    .context-warning .context-warning-text strong { color: #e0a640; }
+    .context-warning button {
+      flex: none;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+    }
+    .context-warning button:disabled { opacity: 0.5; cursor: default; }
+    .context-warning button.context-dismiss {
+      background: transparent;
+      color: #bbb;
+      font-weight: 400;
+      padding: 6px 8px;
+    }
     .think-block {
       margin: 0 0 10px 0;
       border: 1px solid;
@@ -437,6 +471,25 @@
     .icon-btn.active { background: var(--accent); color: #fff; }
     .icon-btn.recording { background: #ff453a; color: #fff; animation: pulse-dim 1s ease-in-out infinite; }
     .icon-btn svg { pointer-events: none; }
+
+    /* C-clamp compress icon: the pad+handle group slides up (closing) and back down
+       (opening) while hovering an enabled button. The group is drawn at the fully-open
+       position; translateY(-6) in user units brings it to fully closed under the jaw. */
+    .compress-icon .clamp-screw {
+      transform: translateY(0);
+      transition: transform 0.2s ease;
+    }
+    #compress-btn:not(:disabled):hover .clamp-screw {
+      animation: clamp-cycle 1.6s ease-in-out infinite;
+    }
+    @keyframes clamp-cycle {
+      0%   { transform: translateY(0); }      /* 100% open */
+      50%  { transform: translateY(-6px); }   /* 0% open (closed) */
+      100% { transform: translateY(0); }      /* back to 100% open */
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #compress-btn:not(:disabled):hover .clamp-screw { animation: none; }
+    }
 
     #prompt {
       flex: 1;
@@ -628,6 +681,22 @@
         <path d="M22 22l-5-10-5 10"/><path d="M14 18h6"/>
       </svg>
     </button>
+    <button class="icon-btn" id="compress-btn" title="Compress Conversation" disabled>
+      <!-- C-clamp icon. The screw + pad group (.clamp-screw) slides up (closing) and
+           back down (opening) on hover; see the .compress-icon keyframes in CSS. -->
+      <svg class="compress-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <!-- Fixed C-frame and top jaw -->
+        <path d="M18 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h2"/>
+        <path d="M8 7h8"/>
+        <!-- Moving spindle assembly: screw shaft + pad + handle, drawn at the fully-open
+             position. The whole group slides up to close and back down to open on hover. -->
+        <g class="clamp-screw">
+          <path d="M12 12v3"/>
+          <rect x="8" y="15" width="8" height="3" rx="1"/>
+          <path d="M12 18v3"/>
+        </g>
+      </svg>
+    </button>
     <textarea id="prompt" rows="1" placeholder="Message…"></textarea>
     <button id="mic-btn" class="icon-btn" title="Speak">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -674,6 +743,61 @@
     observer.observe(document.body, { childList: true, subtree: true });
 
     const katex = require("katex");
+
+    // ── Context-window tracking ──────────────────────────────────────────────────
+    // Load the vendor/model config (same file settings.js uses) so we can look up
+    // each model's maximum context window and warn the user as the conversation
+    // approaches that limit.
+    let appConfig = {};
+    try {
+      appConfig = require("./resources/config.json");
+    } catch (e) {
+      console.error("Failed to load config.json for context tracking:", e);
+    }
+    const DEFAULT_CONTEXT_WINDOW = appConfig.defaultContextWindow || 128000;
+    const CONTEXT_WARN_THRESHOLD = 0.80; // warn at 80% of the context window
+    const CONTEXT_REWARN_EVERY = 5;      // re-warn every N queries while still over threshold
+
+    // Resolve the maximum context window (in tokens) for a given model id.
+    function contextWindowForModel(model) {
+      if (model && appConfig.contextWindows && appConfig.contextWindows[model]) {
+        return appConfig.contextWindows[model];
+      }
+      return DEFAULT_CONTEXT_WINDOW;
+    }
+
+    // Rough token estimate for a single message's content. Handles plain strings
+    // and the multimodal/tool-call shapes stored in tab.history. Images are counted
+    // as a flat approximation since their token cost is model-dependent.
+    function estimateContentTokens(content) {
+      if (content == null) return 0;
+      if (typeof content === "string") return Math.ceil(content.length / 4);
+      if (Array.isArray(content)) {
+        let total = 0;
+        for (const part of content) {
+          if (!part) continue;
+          if (typeof part === "string") { total += Math.ceil(part.length / 4); continue; }
+          if (part.type === "image" || part.base64) { total += 1000; continue; } // flat image estimate
+          if (part.text) total += Math.ceil(part.text.length / 4);
+          if (part.input) total += Math.ceil(JSON.stringify(part.input).length / 4);
+        }
+        return total;
+      }
+      // objects (e.g. tool_calls carriers) — stringify as a fallback
+      try { return Math.ceil(JSON.stringify(content).length / 4); } catch { return 0; }
+    }
+
+    // Estimate the total tokens a tab's conversation history will consume.
+    function estimateHistoryTokens(history) {
+      if (!Array.isArray(history)) return 0;
+      let total = 0;
+      for (const m of history) {
+        total += 4; // per-message role/formatting overhead
+        total += estimateContentTokens(m.content);
+        if (m.tool_calls) total += estimateContentTokens(m.tool_calls);
+      }
+      return total;
+    }
 
     marked.use({
       extensions: [
@@ -746,6 +870,7 @@
     const toLangSel     = document.getElementById("to-lang");
     const agentBtn      = document.getElementById("agent-btn");
     const agentRow      = document.getElementById("agent-row");
+    const compressBtn   = document.getElementById("compress-btn");
     const agentDirLabel = document.getElementById("agent-dir-label");
     const agentDirBtn   = document.getElementById("agent-dir-btn");
     const fileInput    = document.getElementById("file-input");
@@ -791,6 +916,15 @@
     let activeTabId  = null;
     const tabs = {};   // id → { id, title, history, chatLog, saved, imagineMode, attachedFiles, domEl, chatSnapshot }
 
+    // Report this window's name (active tab title) and tab count to the main process
+    // so the Window menu can list all open windows.
+    function reportWindowInfo() {
+      const count = Object.keys(tabs).length;
+      const active = activeTabId != null ? tabs[activeTabId] : null;
+      const name = active ? active.title : "NeuroPanther Chat";
+      ipcRenderer.send("report-window-info", { name, tabCount: count });
+    }
+
     function createTab(title = "New Chat", restore = null) {
       const id = ++tabIdCounter;
 
@@ -815,6 +949,10 @@
         promptText: "",
         attachedFiles: [],
         alwaysAllowTools: new Set(),
+        // Context-window tracking state
+        contextWarned: false,          // whether we've shown the over-threshold warning
+        queriesSinceContextWarn: 0,    // queries since the last warning (for re-warn cadence)
+        compressing: false,            // guard against concurrent compression
         vendor: restore ? restore.vendor : null,
         model: restore ? restore.model : null,
         domEl: null,
@@ -882,6 +1020,7 @@
       }
 
       switchTab(id);
+      reportWindowInfo();
       return id;
     }
 
@@ -895,6 +1034,7 @@
         tab.title = val;
         titleSpan.textContent = val;
         if (id === activeTabId) document.title = "NeuroPanther Chat";
+        reportWindowInfo();
       }
       titleInput.style.display = "none";
       titleSpan.style.display = "";
@@ -912,6 +1052,21 @@
       if (!tab) return;
       tab.saved = true;
       tab.domEl.classList.remove("unsaved");
+    }
+
+    // Enable the Compress button only when the active tab is a text/agent conversation
+    // with content to compress. Disabled in image-generation mode (no text context to
+    // summarize, and image-only vendors can't service the summary request) and while a
+    // compression is already running.
+    function updateCompressAvailability() {
+      const tab = tabs[activeTabId];
+      const hasContent = !!(tab && Array.isArray(tab.history) &&
+        tab.history.some(m => m.role !== "system"));
+      compressBtn.disabled = !tab || tab.imagineMode || !hasContent || !!tab.compressing;
+      // Dynamic tooltip: explain why the button is disabled in image-generation mode.
+      compressBtn.title = (tab && tab.imagineMode)
+        ? "Compress not available in image generation mode"
+        : "Compress Conversation";
     }
 
     function switchTab(id) {
@@ -950,6 +1105,9 @@
       agentBtn.classList.toggle("active", tab.agentMode);
       agentRow.classList.toggle("visible", tab.agentMode);
 
+      // sync compress button availability
+      updateCompressAvailability();
+
       // sync vendor/model lock
       applyVendorLock(tab);
 
@@ -971,6 +1129,7 @@
       if (prompt.value) prompt.style.height = Math.min(prompt.scrollHeight, 120) + "px";
       sendBtn.disabled = !prompt.value.trim();
       prompt.focus();
+      reportWindowInfo();
     }
 
     function activeTab() { return tabs[activeTabId]; }
@@ -1016,6 +1175,8 @@
         const nextId = remaining[Math.min(idx, remaining.length - 1)];
         activeTabId = null;
         switchTab(nextId);
+      } else {
+        reportWindowInfo();
       }
     }
 
@@ -1518,6 +1679,8 @@
         applyVendorLock(tab);
         showImageGenInfo();
       }
+      // Image-generation mode has no compressible text context — keep the button in sync.
+      updateCompressAvailability();
     });
 
     translateBtn.addEventListener("click", () => {
@@ -1529,6 +1692,12 @@
     });
     toLangSel.addEventListener("change",   () => { const tab = activeTab(); if (tab) tab.toLang   = toLangSel.value; });
 
+    compressBtn.addEventListener("click", () => {
+      const tab = activeTab();
+      if (!tab || compressBtn.disabled) return;
+      compressConversation(tab.id);
+    });
+
     agentBtn.addEventListener("click", () => {
       const tab = activeTab();
       if (!tab) return;
@@ -1539,6 +1708,7 @@
         agentBtn.classList.add("active");
         agentRow.classList.add("visible");
       }
+      updateCompressAvailability();
     });
 
     agentDirBtn.addEventListener("click", async () => {
@@ -1598,7 +1768,11 @@
         try {
           const sourceImageBase64 = imageFile?.base64 || tab.lastGeneratedImageBase64 || null;
           clearAttachments();
-          // Build cumulative prompt from prior image-gen turns for iterative refinement
+          // Build cumulative prompt from prior image-gen turns for iterative refinement.
+          // Image generation APIs (e.g. OpenAI gpt-image-1) cap the prompt at 32000 chars,
+          // so trim the oldest prior instructions until the whole prompt fits, always
+          // keeping the newest instruction intact.
+          const IMAGE_PROMPT_MAX = 31000; // margin under the 32000-char hard limit
           let fullPrompt = text;
           if (sourceImageBase64) {
             const priorPrompts = tab.chatLog
@@ -1606,9 +1780,24 @@
               .map(m => m.content.slice(2).trim());
             // Exclude the current prompt (just pushed above)
             priorPrompts.pop();
-            if (priorPrompts.length) {
-              fullPrompt = "Previous instructions for this image:\n" + priorPrompts.map((p, i) => `${i + 1}. ${p}`).join("\n") + "\n\nNew instruction: " + text;
+            // Drop oldest prior instructions until the assembled prompt fits the limit.
+            const buildPrompt = (priors) =>
+              "Previous instructions for this image:\n" +
+              priors.map((p, i) => `${i + 1}. ${p}`).join("\n") +
+              "\n\nNew instruction: " + text;
+            let priors = priorPrompts;
+            while (priors.length && buildPrompt(priors).length > IMAGE_PROMPT_MAX) {
+              priors = priors.slice(1); // drop the oldest
             }
+            if (priors.length) {
+              fullPrompt = buildPrompt(priors);
+            }
+            // If even the new instruction alone exceeds the limit, hard-truncate it.
+            if (fullPrompt.length > IMAGE_PROMPT_MAX) {
+              fullPrompt = fullPrompt.slice(0, IMAGE_PROMPT_MAX);
+            }
+          } else if (fullPrompt.length > IMAGE_PROMPT_MAX) {
+            fullPrompt = fullPrompt.slice(0, IMAGE_PROMPT_MAX);
           }
           const url = await ipcRenderer.invoke("generate-image", { promptText: fullPrompt, vendor, sourceImageBase64, imageModel: imageModelSel.value });
           thinking.innerHTML = "";
@@ -1718,11 +1907,18 @@
             }
           }
         } catch (err) {
-          thinking.style.display = "";
-          thinking.classList.remove("thinking-indicator");
-          thinking.className = "msg error";
-          thinking.textContent = "Error: " + err.message;
           tab.chatLog.pop();
+          if (isContextOverflowError(err.message)) {
+            // Roll the failed user turn out of history so compression summarizes
+            // only the prior successful turns, then offer compress + auto-retry.
+            if (tab.history.length && tab.history[tab.history.length - 1].role === "user") tab.history.pop();
+            renderOverflowError(tab, tabId, thinking, err.message, text);
+          } else {
+            thinking.style.display = "";
+            thinking.classList.remove("thinking-indicator");
+            thinking.className = "msg error";
+            thinking.textContent = "Error: " + err.message;
+          }
         }
       } else {
         addMessage("user", text, tabId);
@@ -1765,19 +1961,35 @@
           if (err.message === "cancelled") {
             thinking.remove();
             tab.history.pop();
-          } else if (!tab.agentMode) {
-            thinking.style.display = "";
-            thinking.classList.remove("thinking-indicator");
-            thinking.className = "msg error";
-            thinking.textContent = "Error: " + err.message;
+            tab.chatLog.pop();
+          } else if (isContextOverflowError(err.message)) {
+            tab.chatLog.pop();
+            // Roll the failed user turn out of history before compressing.
+            if (tab.history.length && tab.history[tab.history.length - 1].role === "user") tab.history.pop();
+            // In agent mode the thinking element may be hidden/used for activity;
+            // create a fresh bubble so the compress action is always visible.
+            const overflowEl = tab.agentMode ? addMessage("assistant", "", tabId) : thinking;
+            renderOverflowError(tab, tabId, overflowEl, err.message, text);
+          } else {
+            if (!tab.agentMode) {
+              thinking.style.display = "";
+              thinking.classList.remove("thinking-indicator");
+              thinking.className = "msg error";
+              thinking.textContent = "Error: " + err.message;
+            }
+            tab.chatLog.pop();
           }
-          tab.chatLog.pop();
         }
       }
 
       if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight;
       sendBtn.disabled = false;
       prompt.focus();
+
+      // After a completed turn, check whether the conversation is approaching the
+      // model's context limit and warn / offer compression if so (text chat only).
+      if (!tab.imagineMode) checkContextUsage(tab, tabId);
+      updateCompressAvailability();
     }
 
     function showImageGenInfo() {
@@ -2051,6 +2263,224 @@
       tab.chatLog.push({ role: "assistant", content: reply, images: [] });
       tab.chatLog[tab.chatLog.length - 1].timestamp = nowEpoch();
       markUnsaved(tabId);
+    }
+
+    // ── Context-window warning + compression ─────────────────────────────────────
+    // Append the "approaching context limit" banner to a tab, with a button to
+    // compress the conversation. Removes any existing banner first so only one shows.
+    function showContextWarning(tab, tabId, used, max) {
+      removeContextWarning(tab);
+      const pct = Math.round((used / max) * 100);
+      const banner = document.createElement("div");
+      banner.className = "context-warning";
+      banner.dataset.contextWarning = "1";
+
+      const textEl = document.createElement("div");
+      textEl.className = "context-warning-text";
+      textEl.innerHTML = `<strong>Context is ${pct}% full</strong> (~${used.toLocaleString()} of ${max.toLocaleString()} tokens). ` +
+        `Older messages may be dropped as it fills. Compress the conversation to free up room.`;
+
+      const compressBtnEl = document.createElement("button");
+      compressBtnEl.textContent = "Compress";
+      compressBtnEl.title = "Summarize the conversation so far to reduce context usage";
+      compressBtnEl.addEventListener("click", () => compressConversation(tab.id));
+
+      const dismissBtn = document.createElement("button");
+      dismissBtn.className = "context-dismiss";
+      dismissBtn.textContent = "Dismiss";
+      dismissBtn.title = "Hide this warning for now";
+      dismissBtn.addEventListener("click", () => removeContextWarning(tab));
+
+      banner.append(textEl, compressBtnEl, dismissBtn);
+      tab.container.appendChild(banner);
+      if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight;
+    }
+
+    function removeContextWarning(tab) {
+      if (!tab || !tab.container) return;
+      tab.container.querySelectorAll('[data-context-warning="1"]').forEach(el => el.remove());
+    }
+
+    // Called after each completed turn. Estimates token usage against the active
+    // model's context window and warns at 80%, re-warning every 5 queries while over.
+    function checkContextUsage(tab, tabId) {
+      if (!tab) return;
+      const model = tab.model || modelSel.value;
+      const max = contextWindowForModel(model);
+      const used = estimateHistoryTokens(tab.history);
+      if (used >= max * CONTEXT_WARN_THRESHOLD) {
+        if (!tab.contextWarned) {
+          tab.contextWarned = true;
+          tab.queriesSinceContextWarn = 0;
+          showContextWarning(tab, tabId, used, max);
+        } else {
+          tab.queriesSinceContextWarn++;
+          if (tab.queriesSinceContextWarn >= CONTEXT_REWARN_EVERY) {
+            tab.queriesSinceContextWarn = 0;
+            showContextWarning(tab, tabId, used, max);
+          }
+        }
+      } else {
+        // Dropped back below threshold — reset so a future crossing warns again.
+        tab.contextWarned = false;
+        tab.queriesSinceContextWarn = 0;
+        removeContextWarning(tab);
+      }
+    }
+
+    // Build a plain-text transcript of the conversation for summarization.
+    function buildTranscript(tab) {
+      const lines = [];
+      for (const m of tab.chatLog) {
+        if (!m) continue;
+        const who = m.role === "user" ? "User" : m.role === "assistant" ? "Assistant" : m.role;
+        let content = typeof m.content === "string" ? m.content : "";
+        if (m.generatedImageUrl) content += (content ? " " : "") + "[generated image]";
+        if (Array.isArray(m.images) && m.images.length) content += (content ? " " : "") + `[${m.images.length} image(s)]`;
+        if (!content.trim()) continue;
+        lines.push(`${who}: ${content}`);
+      }
+      return lines.join("\n\n");
+    }
+
+    // Summarize the whole conversation using the current model and replace the
+    // in-memory history with a single compact summary message, preserving the
+    // system prompt. chatLog (the visible transcript) is left intact.
+    async function compressConversation(tabId) {
+      const tab = tabs[tabId];
+      if (!tab || tab.compressing) return;
+      if (!tab.history || tab.history.length === 0) return;
+      tab.compressing = true;
+      updateCompressAvailability();
+
+      removeContextWarning(tab);
+      const statusEl = addMessage("info", "Compressing conversation…", tabId);
+
+      const vendor = tab.vendor || vendorSel.value;
+      const model  = tab.model  || modelSel.value;
+
+      try {
+        const { used, max } = await summarizeAndReplaceHistory(tab, vendor, model);
+        const pct = Math.round((used / max) * 100);
+        statusEl.textContent = `Conversation compressed — context now ~${pct}% full (~${used.toLocaleString()} tokens).`;
+        markUnsaved(tabId);
+      } catch (err) {
+        statusEl.className = "msg error";
+        statusEl.textContent = "Compression failed: " + err.message;
+      } finally {
+        tab.compressing = false;
+        if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight;
+        updateCompressAvailability();
+      }
+    }
+
+    // Core compression: summarize the whole conversation with the given vendor/model
+    // and replace tab.history with [system?, summary-user, ack-assistant]. Throws on
+    // failure. Returns { used, max } token estimate of the new history.
+    async function summarizeAndReplaceHistory(tab, vendor, model) {
+      // Preserve a leading system prompt if present.
+      const systemMsg = (tab.history[0] && tab.history[0].role === "system") ? tab.history[0] : null;
+
+      const transcript = buildTranscript(tab);
+      const summaryRequest = [
+        { role: "system", content: "You are a conversation summarizer. Produce a concise but complete summary that preserves all facts, decisions, code, names, numbers, and open questions needed to continue the conversation seamlessly. Use compact prose or bullet points. Do not add commentary." },
+        { role: "user", content: `Summarize the following conversation so it can be used as context to continue the discussion:\n\n${transcript}` }
+      ];
+
+      const summary = await ipcRenderer.invoke("chat", { messages: summaryRequest, vendor, model });
+      const summaryText = (typeof summary === "string" ? summary : "").trim();
+      if (!summaryText) throw new Error("Empty summary returned");
+
+      const newHistory = [];
+      if (systemMsg) newHistory.push(systemMsg);
+      newHistory.push({ role: "user", content: `Summary of the conversation so far:\n\n${summaryText}` });
+      newHistory.push({ role: "assistant", content: "Understood. I have the summary and will continue from here." });
+      tab.history = newHistory;
+
+      // Reset tracking so the next crossing of the threshold warns again.
+      tab.contextWarned = false;
+      tab.queriesSinceContextWarn = 0;
+
+      const max = contextWindowForModel(model);
+      const used = estimateHistoryTokens(tab.history);
+      return { used, max };
+    }
+
+    // Heuristic classifier for "input exceeds the model's context window" errors.
+    // Coverage is inconsistent across vendors, so match the common signatures from
+    // OpenAI-compatible APIs, Anthropic, and Bedrock. Never a guarantee.
+    function isContextOverflowError(message) {
+      if (!message) return false;
+      return /context length|context window|maximum context|context_length_exceeded|token limit|too many (input )?tokens|prompt is too long|reduce the length|input (is )?too (long|large)|maximum.*tokens|exceeds the (maximum )?(context|token)/i.test(message);
+    }
+
+    // Render an error bubble for a likely context-overflow failure, with a button
+    // that compresses the conversation and automatically retries the failed message.
+    function renderOverflowError(tab, tabId, el, errMessage, retryText) {
+      el.style.display = "";
+      el.classList.remove("thinking-indicator");
+      el.className = "context-warning";
+      el.innerHTML = "";
+      el.dataset.contextWarning = "1";
+
+      const textEl = document.createElement("div");
+      textEl.className = "context-warning-text";
+      textEl.innerHTML = `<strong>The conversation is too large for this model's context window.</strong> ` +
+        `Compress the conversation to summarize earlier messages, then your message will be sent again automatically.`;
+
+      const btn = document.createElement("button");
+      btn.textContent = "Compress & Retry";
+      btn.title = "Summarize the conversation and resend your last message";
+      btn.addEventListener("click", () => {
+        btn.disabled = true;
+        compressAndRetry(tabId, retryText);
+      });
+
+      const details = document.createElement("button");
+      details.className = "context-dismiss";
+      details.textContent = "Details";
+      details.title = "Show the raw error message";
+      details.addEventListener("click", () => { alert(errMessage); });
+
+      el.append(textEl, btn, details);
+      if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight;
+    }
+
+    // Compress the conversation, then resend the failed message. The failed user
+    // turn has already been rolled out of history/chatLog by the caller, so after
+    // compression we just re-populate the prompt and invoke the normal send path.
+    async function compressAndRetry(tabId, retryText) {
+      const tab = tabs[tabId];
+      if (!tab || tab.compressing) return;
+      tab.compressing = true;
+      updateCompressAvailability();
+
+      const statusEl = addMessage("info", "Compressing conversation…", tabId);
+      const vendor = tab.vendor || vendorSel.value;
+      const model  = tab.model  || modelSel.value;
+
+      try {
+        const { used, max } = await summarizeAndReplaceHistory(tab, vendor, model);
+        const pct = Math.round((used / max) * 100);
+        statusEl.textContent = `Conversation compressed — context now ~${pct}% full. Resending your message…`;
+        markUnsaved(tabId);
+      } catch (err) {
+        statusEl.className = "msg error";
+        statusEl.textContent = "Compression failed: " + err.message + " — your message was not resent.";
+        tab.compressing = false;
+        updateCompressAvailability();
+        return;
+      }
+      tab.compressing = false;
+      updateCompressAvailability();
+
+      // Resend via the normal send() path so all system-prompt/agent/translate
+      // handling is reused. Only resend if the user hasn't typed something new.
+      if (retryText && !prompt.value.trim()) {
+        if (activeTabId !== tabId) switchTab(tabId);
+        prompt.value = retryText;
+        send();
+      }
     }
 
     function addAgentActivity(tabId, title, detail = "", kind = "") {
@@ -2697,6 +3127,7 @@
         activeTabId = null;
         switchTab(remaining[Math.min(idx, remaining.length - 1)]);
       }
+      reportWindowInfo();
     });
 
     // ── Keyboard / button wiring ───────────────────────────────────────────────

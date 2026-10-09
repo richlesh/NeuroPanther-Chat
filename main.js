@@ -45,6 +45,144 @@ function dynVendorName(v) {
   if (v.startsWith(DYN_YAML_PREFIX)) return v.slice(DYN_YAML_PREFIX.length);
   return v;
 }
+
+// ── Debug logging ─────────────────────────────────────────────────────────────
+// When "debug": true is set in resources/config.json, each LLM request writes the
+// system prompt, the prompt sent to the model, and the response to markdown files
+// in the user's home directory. Read fresh each call so toggling config.json takes
+// effect without a restart. All writes are best-effort and never break a request.
+const DEBUG_SYSTEM_PROMPT_PATH = path.join(require("os").homedir(), ".neuropanther-chat-ai-system-prompt.md");
+const DEBUG_PROMPT_PATH        = path.join(require("os").homedir(), ".neuropanther-chat-ai-prompt.md");
+const DEBUG_RESPONSE_PATH      = path.join(require("os").homedir(), ".neuropanther-chat-ai-response.md");
+
+function isDebugEnabled() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, "resources", "config.json"), "utf8"));
+    return cfg.debug === true;
+  } catch {
+    return false;
+  }
+}
+
+// Build a Markdown image tag (data URL) so the debug log renders the actual
+// image bytes in any Markdown viewer. Returns null if no image data is found.
+function debugImageMarkdown(part) {
+  if (!part || typeof part !== "object") return null;
+  // Canonical renderer shape: { type: "image", base64, mediaType }
+  if (part.base64) {
+    const mime = part.mediaType || "image/png";
+    return `![image](data:${mime};base64,${part.base64})`;
+  }
+  // OpenAI-compatible shape: { type: "image_url", image_url: { url } }
+  if (part.image_url && part.image_url.url) {
+    return `![image](${part.image_url.url})`;
+  }
+  // Anthropic shape: { type: "image", source: { type: "base64", media_type, data } }
+  if (part.source && part.source.data) {
+    const mime = part.source.media_type || "image/png";
+    return `![image](data:${mime};base64,${part.source.data})`;
+  }
+  // Bedrock shape: { image: { format, source: { bytes } } }
+  if (part.image && part.image.source && part.image.source.bytes) {
+    const buf = part.image.source.bytes;
+    const b64 = Buffer.isBuffer(buf) ? buf.toString("base64") : Buffer.from(buf).toString("base64");
+    const fmt = part.image.format || "png";
+    return `![image](data:image/${fmt};base64,${b64})`;
+  }
+  // Google inlineData shape: { inlineData: { mimeType, data } }
+  if (part.inlineData && part.inlineData.data) {
+    const mime = part.inlineData.mimeType || "image/png";
+    return `![image](data:${mime};base64,${part.inlineData.data})`;
+  }
+  if (part.type === "image" || part.type === "image_url" || part.type === "input_image") {
+    return "![image](data:,)"; // image part with no inline data available
+  }
+  return null;
+}
+
+// Flatten a single message's content (string | multimodal array | tool-call object)
+// into readable Markdown for the debug log. Image parts are embedded as Markdown
+// images (data URLs) so the log is a complete, accurate representation of what is
+// sent to the AI.
+function debugStringifyContent(content) {
+  if (content == null) return "";
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.map(part => {
+      if (part == null) return "";
+      if (typeof part === "string") return part;
+      const imgMd = debugImageMarkdown(part);
+      if (imgMd) return imgMd;
+      if (part.type === "tool_use") return `[tool_use ${part.name}(${JSON.stringify(part.input || {})})]`;
+      if (part.text) return part.text;
+      return JSON.stringify(part);
+    }).join("\n");
+  }
+  try { return JSON.stringify(content, null, 2); } catch { return String(content); }
+}
+
+// Write the system prompt and the full prompt (message history) to disk if debug on.
+function writeDebugPrompts(messages) {
+  if (!isDebugEnabled() || !Array.isArray(messages)) return;
+  try {
+    const systemMsg = messages.find(m => m.role === "system");
+    const systemText = systemMsg ? debugStringifyContent(systemMsg.content) : "(no system prompt)";
+    fs.writeFileSync(DEBUG_SYSTEM_PROMPT_PATH, `# System Prompt\n\n${systemText}\n`, "utf8");
+
+    const promptSections = messages
+      .filter(m => m.role !== "system")
+      .map(m => {
+        let body = debugStringifyContent(m.content);
+        if (m.tool_calls) body += (body ? "\n" : "") + m.tool_calls.map(tc => `[tool_call ${tc.function?.name}(${tc.function?.arguments})]`).join("\n");
+        return `## ${m.role}\n\n${body}\n`;
+      });
+    fs.writeFileSync(DEBUG_PROMPT_PATH, `# Prompt Sent to LLM\n\n${promptSections.join("\n")}`, "utf8");
+  } catch {
+    // best-effort — never break the request
+  }
+}
+
+// Write the image-generation prompt (and any source image actually sent) to disk
+// if debug on. Output is Markdown so the source image renders in a Markdown viewer.
+function writeDebugImagePrompt({ promptText, vendor, model, sourceImageBase64, sourceMediaType }) {
+  if (!isDebugEnabled()) return;
+  try {
+    const sections = [
+      "# Image Generation Prompt Sent to LLM",
+      "",
+      `**Vendor:** ${vendor || "(unknown)"}`,
+      `**Model:** ${model || "(unknown)"}`,
+      `**Prompt length:** ${(promptText || "").length} characters`,
+      "",
+      "## Prompt",
+      "",
+      promptText || "(empty)",
+      "",
+      "## Source Image",
+      "",
+    ];
+    if (sourceImageBase64) {
+      const mime = sourceMediaType || "image/png";
+      sections.push(`![source image](data:${mime};base64,${sourceImageBase64})`);
+    } else {
+      sections.push("(none — text-to-image generation)");
+    }
+    sections.push("");
+    fs.writeFileSync(DEBUG_PROMPT_PATH, sections.join("\n"), "utf8");
+  } catch {
+    // best-effort — never break the request
+  }
+}
+
+// Write the model's response to disk if debug on.
+function writeDebugResponse(text) {
+  if (!isDebugEnabled()) return;
+  try {
+    fs.writeFileSync(DEBUG_RESPONSE_PATH, `# LLM Response\n\n${typeof text === "string" ? text : String(text ?? "")}\n`, "utf8");
+  } catch {
+    // best-effort
+  }
+}
 // Build the full vendor map (static VENDORS + user-added customVendors) for the UI.
 function mergedVendors() {
   const settings = load();
@@ -84,6 +222,9 @@ app.setAboutPanelOptions({
 
 let mainWin, settingsWin;
 const pendingLoadData = new Map();
+// Tracks per-window metadata (name = active tab title, tab count) for the
+// Window menu's "Open Windows" list. Keyed by BrowserWindow id.
+const windowInfo = new Map();
 let messageCount = 0;
 
 function checkMessageNag() {
@@ -138,6 +279,13 @@ function createWindow() {
     mainWin = win;
     buildMenu();
   }
+  // Keep the Window menu's open-windows list in sync with this window's lifecycle.
+  win.on("closed", () => {
+    windowInfo.delete(win.id);
+    buildMenu();
+  });
+  win.on("focus", () => buildMenu()); // reflect checkmark on the focused window
+  buildMenu();
   return win;
 }
 
@@ -175,6 +323,36 @@ function showAbout() {
   });
   ipcMain.handleOnce("close-about", () => aboutWin?.close());
   aboutWin.on("closed", () => { aboutWin = null; });
+}
+
+// Build the dynamic "Open Windows" section for the Window menu: one item per open
+// chat window, labeled "<name> (<tabCount>)". Selecting an item brings that window
+// to the front. Returns [] when there are no chat windows.
+function buildOpenWindowsMenuItems() {
+  const chatWindows = BrowserWindow.getAllWindows().filter(w => {
+    if (w.isDestroyed()) return false;
+    const url = w.webContents.getURL();
+    return url.includes("index.html");
+  });
+  if (chatWindows.length === 0) return [];
+  const focused = BrowserWindow.getFocusedWindow();
+  const items = chatWindows.map(w => {
+    const info = windowInfo.get(w.id) || { name: "NeuroPanther Chat", tabCount: 0 };
+    const count = info.tabCount || 0;
+    const label = `${info.name || "NeuroPanther Chat"} (${count})`;
+    return {
+      label,
+      type: "checkbox",
+      checked: !!focused && focused.id === w.id,
+      click: () => {
+        if (w.isDestroyed()) return;
+        if (w.isMinimized()) w.restore();
+        w.show();
+        w.focus();
+      }
+    };
+  });
+  return [{ type: "separator" }, { label: "Open Windows", enabled: false }, ...items];
 }
 
 function buildMenu() {
@@ -287,6 +465,7 @@ function buildMenu() {
           { type: "separator" },
           { role: "front" },
         ] : []),
+        ...buildOpenWindowsMenuItems(),
       ]
     },
     {
@@ -897,6 +1076,10 @@ ipcMain.on("cancel-stream", (_event, sid) => {
 async function handleChatStream(event, { messages, vendor, model, agentMode, sid }) {
   const abortController = new AbortController();
   activeAborts[sid] = abortController;
+  // Debug logging: dump the system prompt and the prompt sent to the LLM (if enabled).
+  writeDebugPrompts(messages);
+  // Wrapper that logs the response (if debug) before forwarding stream completion.
+  const emitDone = (text) => { writeDebugResponse(text); event.sender.send("stream-done", sid, text); };
   checkMessageNag();
   const settings = load();
   const displayModelActivity = settings.displayModelActivity !== false;
@@ -949,7 +1132,7 @@ async function handleChatStream(event, { messages, vendor, model, agentMode, sid
       const plainMessages = messages.map(m => ({ role: m.role, content: typeof m.content === "string" ? m.content : (Array.isArray(m.content) ? m.content.map(p => p.text || "").join("") : "") }));
       const configPath = yamlConfigPathForVendor(vendor);
       const content = await genericVendorConfig.callPrompt(apiKey, model, lastPrompt, plainMessages, configPath);
-      event.sender.send("stream-done", sid, content || "");
+      emitDone(content || "");
       delete activeAborts[sid];
       return;
     }
@@ -1071,7 +1254,7 @@ async function handleChatStream(event, { messages, vendor, model, agentMode, sid
           return { id: tc.id, name: tc.name, args };
         }));
       } else {
-        event.sender.send("stream-done", sid, fullText);
+        emitDone(fullText);
       }
     } else if (vendor === "anthropic") {
       const client = new Anthropic({ apiKey });
@@ -1134,7 +1317,7 @@ async function handleChatStream(event, { messages, vendor, model, agentMode, sid
       if (toolUses.length > 0) {
         event.sender.send("stream-tool-calls", sid, toolUses.map(t => ({ id: t.id, name: t.name, args: t.input })));
       } else {
-        event.sender.send("stream-done", sid, fullText);
+        emitDone(fullText);
       }
     } else if (useNonStreaming) {
       // Google with tool results in history — use non-streaming
@@ -1172,7 +1355,7 @@ async function handleChatStream(event, { messages, vendor, model, agentMode, sid
         }));
       } else {
         const text = choice.message.content || "";
-        event.sender.send("stream-done", sid, text);
+        emitDone(text);
       }
     } else {
       const client = new OpenAI({ apiKey, baseURL, defaultHeaders });
@@ -1238,7 +1421,7 @@ async function handleChatStream(event, { messages, vendor, model, agentMode, sid
           return { id: tc.id, name: tc.name, args };
         }));
       } else {
-        event.sender.send("stream-done", sid, fullText);
+        emitDone(fullText);
       }
     }
   } catch (err) {
@@ -1284,7 +1467,16 @@ ipcMain.handle("whisper-transcribe", async (_event, { base64, mimeType }) => {
   }
 });
 
-ipcMain.handle("chat", async (_event, { messages, vendor: vendorOverride, model: modelOverride }) => {
+ipcMain.handle("chat", async (_event, args) => {
+  // Debug logging: dump system prompt + prompt, run the request, then dump response.
+  writeDebugPrompts(args.messages);
+  const result = await chatCompletion(args);
+  writeDebugResponse(result);
+  return result;
+});
+
+// Non-streaming single-shot completion. Returns the response text as a string.
+async function chatCompletion({ messages, vendor: vendorOverride, model: modelOverride }) {
   checkMessageNag();
   const settings = load();
   const vendor = vendorOverride || settings.vendor;
@@ -1383,7 +1575,7 @@ ipcMain.handle("chat", async (_event, { messages, vendor: vendorOverride, model:
   const client = new OpenAI({ apiKey: apiKey || "none", baseURL: chatBaseURL, defaultHeaders: chatHeaders });
   const res = await client.chat.completions.create({ model, messages });
   return res.choices[0].message.content;
-});
+}
 
 ipcMain.handle("save-temp-image", (_event, { base64, mediaType }) => {
   const os = require("os");
@@ -1470,6 +1662,9 @@ ipcMain.handle("generate-image", async (_event, { promptText, vendor, sourceImag
   if (!apiKeys?.[vendor]) throw new Error("You need to set the API key in Settings before this LLM vendor can be used.");
   const vendorCfg = VENDORS[vendor];
   const model = imageModel || vendorCfg.imageModel;
+
+  // Debug logging: dump the image-generation prompt and any source image sent (if enabled).
+  writeDebugImagePrompt({ promptText, vendor, model, sourceImageBase64 });
 
   if (vendor === "google") {
     // Google Imagen is text-to-image only — image editing not supported
@@ -1835,6 +2030,15 @@ ipcMain.handle("image-context-menu", async (_event, src) => {
 
 // ── Tab drag-and-drop between windows ─────────────────────────────────────────
 let draggedTabState = null;  // { sourceWinId, tabId, state }
+
+// Renderer reports its window name (active tab title) and tab count so the
+// Window menu can list all open chat windows.
+ipcMain.on("report-window-info", (event, { name, tabCount }) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return;
+  windowInfo.set(win.id, { name: name || "NeuroPanther Chat", tabCount: tabCount || 0 });
+  buildMenu();
+});
 
 ipcMain.on("tab-drag-start", (event, { tabId, state, tabCount }) => {
   draggedTabState = { sourceWinId: event.sender.id, tabId, state, tabCount };
