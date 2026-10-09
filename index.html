@@ -472,23 +472,24 @@
     .icon-btn.recording { background: #ff453a; color: #fff; animation: pulse-dim 1s ease-in-out infinite; }
     .icon-btn svg { pointer-events: none; }
 
-    /* C-clamp compress icon: the pad+handle group slides up (closing) and back down
-       (opening) while hovering an enabled button. The group is drawn at the fully-open
-       position; translateY(-6) in user units brings it to fully closed under the jaw. */
-    .compress-icon .clamp-screw {
-      transform: translateY(0);
+    /* C-clamp compress icon. The C-frame and rounded-rectangle pad are fixed. The
+       rigid T (.clamp-tee) simply TRANSLATES straight down to close (stem tip meets
+       the pad) and back up to open while hovering an enabled button — no scaling,
+       fixed proportions. It is drawn at the fully-open (highest) position. */
+    .compress-icon .clamp-tee {
+      transform: translateY(0);      /* highest (open) position */
       transition: transform 0.2s ease;
     }
-    #compress-btn:not(:disabled):hover .clamp-screw {
+    #compress-btn:not(:disabled):hover .clamp-tee {
       animation: clamp-cycle 1.6s ease-in-out infinite;
     }
     @keyframes clamp-cycle {
-      0%   { transform: translateY(0); }      /* 100% open */
-      50%  { transform: translateY(-6px); }   /* 0% open (closed) */
-      100% { transform: translateY(0); }      /* back to 100% open */
+      0%   { transform: translateY(0); }     /* 100% open — T up under the top arm */
+      50%  { transform: translateY(6px); }   /* 0% open — T down, stem tip on the pad */
+      100% { transform: translateY(0); }     /* back to 100% open */
     }
     @media (prefers-reduced-motion: reduce) {
-      #compress-btn:not(:disabled):hover .clamp-screw { animation: none; }
+      #compress-btn:not(:disabled):hover .clamp-tee { animation: none; }
     }
 
     #prompt {
@@ -682,18 +683,20 @@
       </svg>
     </button>
     <button class="icon-btn" id="compress-btn" title="Compress Conversation" disabled>
-      <!-- C-clamp icon. The screw + pad group (.clamp-screw) slides up (closing) and
-           back down (opening) on hover; see the .compress-icon keyframes in CSS. -->
+      <!-- C-clamp icon. STATIONARY: the C-frame (left bar + top arm + bottom arm) and
+           the rounded-rectangle pad. MOVING: the rigid T (.clamp-tee = crossbar + stem)
+           which simply TRANSLATES down to close (stem tip meets the pad) and up to open
+           — no scaling, fixed proportions; see the .compress-icon keyframes in CSS. -->
       <svg class="compress-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <!-- Fixed C-frame and top jaw -->
-        <path d="M18 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h2"/>
-        <path d="M8 7h8"/>
-        <!-- Moving spindle assembly: screw shaft + pad + handle, drawn at the fully-open
-             position. The whole group slides up to close and back down to open on hover. -->
-        <g class="clamp-screw">
-          <path d="M12 12v3"/>
-          <rect x="8" y="15" width="8" height="3" rx="1"/>
-          <path d="M12 18v3"/>
+        <!-- Stationary C-frame: left bar, top arm, and bottom arm (open to the right). -->
+        <path d="M18 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h2"/>
+        <!-- Stationary rounded-rectangle pad (the fixed bottom jaw). -->
+        <rect x="8.5" y="17.5" width="7" height="3" rx="1.4"/>
+        <!-- Moving rigid T: crossbar + centered stem, drawn at the fully-open (highest)
+             position just under the top arm. Translates straight down to close. -->
+        <g class="clamp-tee">
+          <path d="M8 8h8"/>
+          <path d="M12 8v4"/>
         </g>
       </svg>
     </button>
