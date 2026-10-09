@@ -496,6 +496,88 @@
       #compress-btn:not(:disabled):hover .clamp-tee { animation: none; }
     }
 
+    /* Translate icon: two glyphs that wiggle in opposite directions while hovering an
+       enabled translate button — whether translate mode is selected (on) or not (off).
+       Each glyph rotates about its own center. */
+    #translate-btn .tr-glyph {
+      transform-box: view-box;
+      transition: transform 0.2s ease;
+    }
+    #translate-btn .tr-glyph-left  { transform-origin: 6.5px 8px; }
+    #translate-btn .tr-glyph-right { transform-origin: 16px 17px; }
+    #translate-btn:not(:disabled):hover .tr-glyph-left  { animation: tr-wiggle-left  0.5s ease-in-out infinite; }
+    #translate-btn:not(:disabled):hover .tr-glyph-right { animation: tr-wiggle-right 0.5s ease-in-out infinite; }
+    @keyframes tr-wiggle-left {
+      0%, 100% { transform: rotate(0deg); }
+      25%      { transform: rotate(-12deg); }
+      75%      { transform: rotate(12deg); }
+    }
+    @keyframes tr-wiggle-right {
+      0%, 100% { transform: rotate(0deg); }
+      25%      { transform: rotate(12deg); }
+      75%      { transform: rotate(-12deg); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #translate-btn:not(:disabled):hover .tr-glyph-left,
+      #translate-btn:not(:disabled):hover .tr-glyph-right { animation: none; }
+    }
+
+    /* Robot (Agent) icon: on hover of an enabled button, the antenna stalk extends
+       upward and retracts in a loop. The stalk grows from its base at the head top
+       (scaleY) while the tip ball rides up with it (translateY). */
+    #agent-btn .robot-antenna-stalk {
+      transform-box: view-box;
+      transform-origin: 12px 8px;    /* base of the antenna, at the head top */
+      transform: scaleY(1);
+      transition: transform 0.2s ease;
+    }
+    #agent-btn .robot-antenna-tip {
+      transform-box: view-box;
+      transform-origin: 12px 3px;
+      transform: translateY(0);
+      transition: transform 0.2s ease;
+    }
+    #agent-btn:not(:disabled):hover .robot-antenna-stalk {
+      animation: robot-antenna-stalk 1s ease-in-out infinite;
+    }
+    #agent-btn:not(:disabled):hover .robot-antenna-tip {
+      animation: robot-antenna-tip 1s ease-in-out infinite;
+    }
+    @keyframes robot-antenna-stalk {
+      0%, 100% { transform: scaleY(1); }     /* resting length */
+      50%      { transform: scaleY(1.75); }  /* extended upward */
+    }
+    @keyframes robot-antenna-tip {
+      0%, 100% { transform: translateY(0); }    /* resting */
+      50%      { transform: translateY(-3px); }  /* lifted with the extended stalk */
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #agent-btn:not(:disabled):hover .robot-antenna-stalk,
+      #agent-btn:not(:disabled):hover .robot-antenna-tip { animation: none; }
+    }
+
+    /* Generate Image icon: on hover of an enabled button, the sun arcs up to the zenith
+       and off the frame, then reappears low on the left edge and rises back to its
+       original position. A clipPath hides the sun whenever it leaves the picture. */
+    #imagine-btn .img-sun {
+      transform-box: view-box;
+      transform: translate(0, 0);
+      transition: transform 0.2s ease;
+    }
+    #imagine-btn:not(:disabled):hover .img-sun {
+      animation: imagine-sun 2.4s linear infinite;
+    }
+    @keyframes imagine-sun {
+      0%      { transform: translate(0, 0); }           /* original position */
+      30%     { transform: translate(3.5px, -3.5px); }  /* up to the zenith (top center) */
+      48%     { transform: translate(8.5px, -8px); }    /* continues off the frame (hidden) */
+      48.01%  { transform: translate(-5.5px, 12.5px); } /* instant wrap to low-left (hidden) */
+      100%    { transform: translate(0, 0); }           /* rises back to the original */
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #imagine-btn:not(:disabled):hover .img-sun { animation: none; }
+    }
+
     #prompt {
       flex: 1;
       resize: none;
@@ -671,19 +753,39 @@
     </button>
     <button class="icon-btn" id="imagine-btn" title="Generate Image">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+        <defs>
+          <!-- Clip to the picture's interior so the sun vanishes when it leaves the frame. -->
+          <clipPath id="imagine-sky-clip"><rect x="4" y="4" width="16" height="16" rx="1"/></clipPath>
+        </defs>
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+        <!-- Sun: arcs up to the zenith and off the frame, then reappears low on the left
+             edge and rises back to its original position (looped on hover). -->
+        <g clip-path="url(#imagine-sky-clip)">
+          <circle class="img-sun" cx="8.5" cy="8.5" r="1.5"/>
+        </g>
         <polyline points="21 15 16 10 5 21"/>
       </svg>
     </button>
     <button class="icon-btn" id="agent-btn" title="Agent Mode">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="4" y="8" width="16" height="12" rx="2"/><line x1="12" y1="8" x2="12" y2="4"/><circle cx="12" cy="3" r="1"/><circle cx="9" cy="14" r="1.5"/><circle cx="15" cy="14" r="1.5"/><line x1="1" y1="13" x2="4" y2="13"/><line x1="20" y1="13" x2="23" y2="13"/>
+        <rect x="4" y="8" width="16" height="12" rx="2"/>
+        <!-- Antenna: stalk extends upward (and retracts) in a loop on hover; the tip
+             ball rides up with it. The stalk grows from its base at the head top. -->
+        <line class="robot-antenna-stalk" x1="12" y1="8" x2="12" y2="4"/>
+        <circle class="robot-antenna-tip" cx="12" cy="3" r="1"/>
+        <circle cx="9" cy="14" r="1.5"/><circle cx="15" cy="14" r="1.5"/><line x1="1" y1="13" x2="4" y2="13"/><line x1="20" y1="13" x2="23" y2="13"/>
       </svg>
     </button>
     <button class="icon-btn" id="translate-btn" title="Translate">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M5 8l6 6"/><path d="M4 14l6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/>
-        <path d="M22 22l-5-10-5 10"/><path d="M14 18h6"/>
+        <!-- Left glyph (source letter). Wiggles counter-clockwise on hover when active. -->
+        <g class="tr-glyph tr-glyph-left">
+          <path d="M5 8l6 6"/><path d="M4 14l6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/>
+        </g>
+        <!-- Right glyph (translated letter). Wiggles clockwise on hover when active. -->
+        <g class="tr-glyph tr-glyph-right">
+          <path d="M22 22l-5-10-5 10"/><path d="M14 18h6"/>
+        </g>
       </svg>
     </button>
     <button class="icon-btn" id="compress-btn" title="Compress Conversation" disabled>
