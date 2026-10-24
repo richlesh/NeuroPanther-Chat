@@ -1679,15 +1679,15 @@
       fileInput.value = "";
     });
 
-    // drag-and-drop onto chat area
+    // drag-and-drop onto chat area — only toggles the visual highlight here;
+    // the document-level drop handler below performs the actual attach so that
+    // dropping anywhere in the window (chat, attachment pane, input/button bar)
+    // attaches the file instead of letting the browser open it in a new window.
     chatEl.addEventListener("dragover", e => {
       if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); chatEl.classList.add("drag-over"); }
     });
     chatEl.addEventListener("dragleave", e => { if (!chatEl.contains(e.relatedTarget)) chatEl.classList.remove("drag-over"); });
-    chatEl.addEventListener("drop", e => {
-      chatEl.classList.remove("drag-over");
-      if (e.dataTransfer.files.length) { e.preventDefault(); processFiles(e.dataTransfer.files); }
-    });
+    chatEl.addEventListener("drop", () => { chatEl.classList.remove("drag-over"); });
 
     // open all links in external browser
     document.addEventListener("click", e => {
@@ -3359,9 +3359,19 @@
       sendBtn.disabled = !prompt.value.trim();
     });
 
-    // prevent drag-and-drop into textarea
-    prompt.addEventListener("dragover", e => e.preventDefault());
-    prompt.addEventListener("drop", e => e.preventDefault());
+    // Window-wide drag-and-drop guard: prevent the browser from navigating to
+    // (and opening in an uncloseable window) any file dropped outside the chat
+    // area. A file dropped anywhere in the window is attached instead.
+    window.addEventListener("dragover", e => {
+      if (e.dataTransfer && e.dataTransfer.types.includes("Files")) e.preventDefault();
+    });
+    window.addEventListener("drop", e => {
+      if (e.dataTransfer && e.dataTransfer.files.length) {
+        e.preventDefault();
+        chatEl.classList.remove("drag-over");
+        processFiles(e.dataTransfer.files);
+      }
+    });
   </script>
 </body>
 </html>
