@@ -1526,19 +1526,55 @@
 
     const rememberedImageModel = {};  // vendor → selected image model
 
-    function populateImageModelSelect(vendor) {
+    const imageModelCache = {};  // vendor → normalized [{value,label}] array
+
+    // Normalize an image-model list entry to {value,label}. Entries may be
+    // plain strings (static config) or {id,label} objects (dynamic fetch,
+    // e.g. Leonardo where value is a UUID but label is a friendly name).
+    function normalizeImageModel(entry) {
+      if (entry && typeof entry === "object") {
+        return { value: entry.id ?? entry.value ?? "", label: entry.label ?? entry.id ?? entry.value ?? "" };
+      }
+      return { value: entry, label: entry };
+    }
+
+    async function populateImageModelSelect(vendor) {
       const vendorCfg = allVendors[vendor];
-      const models = vendorCfg?.imageModels || (vendorCfg?.imageModel ? [vendorCfg.imageModel] : []);
+      const staticModels = vendorCfg?.imageModels || (vendorCfg?.imageModel ? [vendorCfg.imageModel] : []);
+
+      // Fetch image models live (like non-image models) so discontinued
+      // hard-coded defaults are replaced by whatever the API currently offers.
+      // Fall back to the static config list if the fetch yields nothing.
+      let models = imageModelCache[vendor];
+      if (!models) {
+        imageModelSel.innerHTML = "";
+        const loadingOpt = document.createElement("option");
+        loadingOpt.value = ""; loadingOpt.textContent = "Loading\u2026"; loadingOpt.disabled = true;
+        imageModelSel.appendChild(loadingOpt);
+        let raw;
+        try {
+          const fetched = await ipcRenderer.invoke("get-image-models-for-vendor", vendor);
+          raw = (fetched && fetched.length) ? fetched : staticModels;
+        } catch {
+          raw = staticModels;
+        }
+        models = raw.map(normalizeImageModel).filter(m => m.value);
+        imageModelCache[vendor] = models;
+      }
+
       imageModelSel.innerHTML = "";
       for (const m of models) {
         const opt = document.createElement("option");
-        opt.value = m; opt.textContent = m;
+        opt.value = m.value; opt.textContent = m.label;
         imageModelSel.appendChild(opt);
       }
       const restore = rememberedImageModel[vendor];
-      if (restore && models.includes(restore)) {
+      if (restore && models.some(m => m.value === restore)) {
         imageModelSel.value = restore;
       }
+      // Keep the active tab's image model in sync with the resolved selection.
+      const tab = activeTab();
+      if (tab && tab.imagineMode && imageModelSel.value) tab.imageModel = imageModelSel.value;
     }
 
     imageModelSel.addEventListener("change", () => {

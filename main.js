@@ -752,6 +752,89 @@ ipcMain.handle("get-models-for-vendor", async (_event, vendor) => {
   }
 });
 
+// Identify image-generation model IDs from a vendor's full model list.
+// Matches the known text-to-image model families (OpenAI gpt-image-*/dall-e-*,
+// Google imagen-*, etc.) so image models can be picked out of an
+// OpenAI-compatible /v1/models listing the same way text models are.
+function isImageModelId(id) {
+  const s = String(id).toLowerCase();
+  return /(^|\/)(gpt-image|dall-e|imagen|qwen-image|grok-imagine)/.test(s);
+}
+
+// Fetch image models from a vendor exposing an OpenAI-compatible /v1/models
+// listing, filtered to image-capable IDs. Returns {id,label} entries.
+async function fetchOpenAICompatImageModels(vendor, apiKey) {
+  const client = new OpenAI({ apiKey, baseURL: VENDORS[vendor]?.baseURL });
+  const res = await client.models.list();
+  return res.data
+    .map(m => m.id.replace(/^models\//, ""))
+    .filter(isImageModelId)
+    .map(id => ({ id, label: id }));
+}
+
+// Fetch Leonardo's platform models. The generation endpoint takes a model
+// UUID as `modelId`, so the UUID is the option value and the human-readable
+// name is the label. Returns {id,label} entries.
+async function fetchLeonardoImageModels(apiKey) {
+  const res = await fetch("https://cloud.leonardo.ai/api/rest/v1/platformModels", {
+    headers: { "Authorization": `Bearer ${apiKey}`, "Accept": "application/json" }
+  });
+  if (!res.ok) throw new Error(`Leonardo models error ${res.status}`);
+  const data = await res.json();
+  const list = data.custom_models || data.platformModels || data.models || [];
+  return list
+    .filter(m => m && m.id)
+    .map(m => ({ id: m.id, label: m.name || m.id }));
+}
+
+// Per-vendor image-model fetchers. A vendor appears here only when its API
+// exposes a listing whose IDs are valid inputs to this app's generation call
+// for that vendor. Vendors absent from this map fall back to the static
+// imageModels list in config.json (their APIs have no compatible listing,
+// e.g. Stability's /v1/engines/list returns legacy engines incompatible with
+// the v2beta sd3 endpoint this app uses; Ideogram/Recraft/Flux/fal encode the
+// model in the request path/slug with no discovery endpoint).
+const IMAGE_MODEL_FETCHERS = {
+  openai:   (keys) => fetchOpenAICompatImageModels("openai", keys.openai),
+  google:   (keys) => fetchOpenAICompatImageModels("google", keys.google),
+  alibaba:  (keys) => fetchOpenAICompatImageModels("alibaba", keys.alibaba),
+  xai:      (keys) => fetchOpenAICompatImageModels("xai", keys.xai),
+  leonardo: (keys) => fetchLeonardoImageModels(keys.leonardo),
+};
+
+// Returns the image-generation models for a vendor as an array of {id,label}
+// objects. Models are fetched live for vendors whose API exposes a compatible
+// listing (see IMAGE_MODEL_FETCHERS) and always merged with the static
+// imageModels list in config.json so configured defaults survive and newly
+// released models are picked up automatically. Vendors without a compatible
+// listing return the static list alone.
+ipcMain.handle("get-image-models-for-vendor", async (_event, vendor) => {
+  const cfg = VENDORS[vendor];
+  if (!cfg?.imageGeneration) return null;
+  const staticIds = cfg.imageModels || (cfg.imageModel ? [cfg.imageModel] : []);
+  const staticEntries = staticIds.map(id => ({ id, label: id }));
+
+  const fetcher = IMAGE_MODEL_FETCHERS[vendor];
+  if (!fetcher) return staticEntries.length ? staticEntries : null;
+
+  const { apiKeys } = load();
+  if (!apiKeys?.[vendor]) return staticEntries.length ? staticEntries : null;
+
+  try {
+    const fetched = await fetcher(apiKeys);
+    // Merge fetched + static, de-duplicated by id (fetched labels win), then
+    // sort by label for a stable, readable dropdown.
+    const byId = new Map();
+    for (const e of staticEntries) byId.set(e.id, e);
+    for (const e of fetched) byId.set(e.id, e);
+    const merged = Array.from(byId.values()).sort((a, b) => a.label.localeCompare(b.label));
+    return merged.length ? merged : (staticEntries.length ? staticEntries : null);
+  } catch (e) {
+    console.error(`get-image-models-for-vendor [${vendor}]:`, e.message);
+    return staticEntries.length ? staticEntries : null;
+  }
+});
+
 ipcMain.handle("ollama-available", async () => {
   try {
     const res = await fetch("http://localhost:11434/api/tags");
