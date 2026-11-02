@@ -347,12 +347,34 @@ async function callPromptInternal(authToken, model, prompt, messages) {
     throw new Error("No Response section in Generic vendor config");
   }
   const contentPath = responseConfig.ContentPath;
-  if (!contentPath || !contentPath.trim()) {
-    // If no path specified, return the whole body
-    return respBody;
+
+  // Optional: extract a separate reasoning/thinking field (e.g. OpenAI-compatible
+  // "reasoning" or "reasoning_content") and wrap it in <think>...</think> so the
+  // renderer shows it as a collapsible "Model thinking" block separate from the
+  // final answer. No-op when ReasoningPath is absent or empty.
+  let reasoning = "";
+  const reasoningPath = responseConfig.ReasoningPath;
+  if (reasoningPath && reasoningPath.trim()) {
+    try {
+      const r = evaluateJsonPath(respBody, reasoningPath);
+      if (typeof r === "string" && r.trim()) reasoning = r.trim();
+    } catch {
+      // Missing/invalid reasoning field — ignore and fall back to content only.
+    }
   }
 
-  return evaluateJsonPath(respBody, contentPath);
+  let content;
+  if (!contentPath || !contentPath.trim()) {
+    // If no path specified, use the whole body as the content.
+    content = respBody;
+  } else {
+    content = evaluateJsonPath(respBody, contentPath);
+  }
+
+  if (reasoning) {
+    return "<think>" + reasoning + "</think>\n\n" + (content || "");
+  }
+  return content;
 }
 
 /**

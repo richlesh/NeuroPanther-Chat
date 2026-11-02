@@ -32,6 +32,12 @@ Prompt:
     }
   Response:
     ContentPath: "choices[0].message.content"
+    # Optional: ReasoningPath points at a separate reasoning/thinking field
+    # (e.g. OpenAI-compatible "reasoning" or "reasoning_content"). When set and
+    # non-empty, its text is wrapped in <think>...</think> and shown as a
+    # collapsible "Model thinking" block, separate from the final answer.
+    # Leave commented out if the model has no separate reasoning field.
+    # ReasoningPath: "choices[0].message.reasoning"
 
 # To use single-shot mode instead, change ConversationMode and Body:
 #
