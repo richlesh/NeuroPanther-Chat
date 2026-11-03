@@ -53,6 +53,12 @@
         }
       ]
     },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true
+    },
     "linux": {
       "icon": "resources/app_icon_256.png",
       "category": "Network",
