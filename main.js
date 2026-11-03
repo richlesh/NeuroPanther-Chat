@@ -121,8 +121,78 @@ function debugStringifyContent(content) {
   try { return JSON.stringify(content, null, 2); } catch { return String(content); }
 }
 
+// Produce a console-friendly copy of a value (typically a messages array):
+// deep-cloned with large base64/data-URL blobs replaced by a short placeholder so
+// the Debug Console stays readable. Never throws.
+function sanitizeForConsole(value) {
+  const MAX = 256; // collapse strings longer than this that look like base64/data blobs
+  const seen = new WeakSet();
+  const walk = (v) => {
+    if (typeof v === "string") {
+      if (v.length > MAX && (/^data:[^;]+;base64,/.test(v) || /^[A-Za-z0-9+/=\s]+$/.test(v))) {
+        return `(base64 data omitted — ${v.length} chars)`;
+      }
+      return v;
+    }
+    if (v && typeof v === "object") {
+      if (seen.has(v)) return "(circular)";
+      seen.add(v);
+      if (Array.isArray(v)) return v.map(walk);
+      const out = {};
+      for (const [k, val] of Object.entries(v)) out[k] = walk(val);
+      return out;
+    }
+    return v;
+  };
+  try { return walk(value); } catch { return value; }
+}
+
+// Produce a console-friendly, abbreviated copy of a messages array for the Debug
+// Console. Each LLM request resends the entire conversation, which is noisy, so
+// keep the leading system message(s) and the CURRENT turn — the last user
+// message plus everything after it (the assistant tool-call messages and their
+// tool results for this turn) — and replace the older history in between with a
+// single "Conversation History Sent Here..." placeholder.
+// Does not affect the actual request sent to the LLM — display only.
+function abbreviateHistoryForConsole(messages) {
+  if (!Array.isArray(messages)) return messages;
+  const sanitized = sanitizeForConsole(messages);
+  if (!Array.isArray(sanitized)) return sanitized;
+
+  // Keep any leading system message(s).
+  let head = 0;
+  while (head < sanitized.length && sanitized[head] && sanitized[head].role === "system") head++;
+
+  const systemMsgs = sanitized.slice(0, head);
+  const rest = sanitized.slice(head);
+
+  // Find the start of the current turn: the last "user" message. Everything from
+  // there to the end (user message + this turn's assistant tool calls + tool
+  // results) is kept so the tool request/response for this turn stays visible.
+  let turnStart = -1;
+  for (let i = rest.length - 1; i >= 0; i--) {
+    if (rest[i] && rest[i].role === "user") { turnStart = i; break; }
+  }
+  // No user message found (shouldn't happen) — fall back to keeping the last message.
+  if (turnStart === -1) turnStart = rest.length - 1;
+
+  const hiddenCount = turnStart; // messages before the current turn
+  if (hiddenCount <= 0) return sanitized; // nothing old to collapse
+
+  return [
+    ...systemMsgs,
+    { role: "(history)", content: `Conversation History Sent Here... (${hiddenCount} earlier message${hiddenCount === 1 ? "" : "s"} omitted)` },
+    ...rest.slice(turnStart)
+  ];
+}
+
 // Write the system prompt and the full prompt (message history) to disk if debug on.
 function writeDebugPrompts(messages) {
+  // Live Debug Console: send the outgoing request regardless of the config.json
+  // debug flag (the console only receives traffic while it is open).
+  if (Array.isArray(messages)) {
+    logToDebugConsole("request", "REQUEST TO LLM", abbreviateHistoryForConsole(messages));
+  }
   if (!isDebugEnabled() || !Array.isArray(messages)) return;
   try {
     const systemMsg = messages.find(m => m.role === "system");
@@ -145,6 +215,12 @@ function writeDebugPrompts(messages) {
 // Write the image-generation prompt (and any source image actually sent) to disk
 // if debug on. Output is Markdown so the source image renders in a Markdown viewer.
 function writeDebugImagePrompt({ promptText, vendor, model, sourceImageBase64, sourceMediaType }) {
+  logToDebugConsole("request", "IMAGE GENERATION REQUEST", {
+    vendor: vendor || "(unknown)",
+    model: model || "(unknown)",
+    prompt: promptText || "(empty)",
+    sourceImage: sourceImageBase64 ? `(${sourceMediaType || "image"}, ${sourceImageBase64.length} base64 chars)` : null
+  });
   if (!isDebugEnabled()) return;
   try {
     const sections = [
@@ -176,6 +252,7 @@ function writeDebugImagePrompt({ promptText, vendor, model, sourceImageBase64, s
 
 // Write the model's response to disk if debug on.
 function writeDebugResponse(text) {
+  logToDebugConsole("response", "RESPONSE FROM LLM", typeof text === "string" ? text : String(text ?? ""));
   if (!isDebugEnabled()) return;
   try {
     fs.writeFileSync(DEBUG_RESPONSE_PATH, `# LLM Response\n\n${typeof text === "string" ? text : String(text ?? "")}\n`, "utf8");
@@ -325,6 +402,46 @@ function showAbout() {
   aboutWin.on("closed", () => { aboutWin = null; });
 }
 
+// ── Debug Console window ──────────────────────────────────────────────────────
+// A live green-on-black console that shows the text sent to the LLM and the
+// responses coming back. Opened from the Window menu. Unlike the file-based
+// debug writers (gated by config.json "debug"), this window logs whatever
+// traffic occurs while it is open, so no config flag is required.
+let debugConsoleWin;
+function openDebugConsole() {
+  if (debugConsoleWin && !debugConsoleWin.isDestroyed()) return debugConsoleWin.focus();
+  debugConsoleWin = new BrowserWindow({
+    width: 720,
+    height: 560,
+    parent: mainWin,
+    icon: appIcon,
+    backgroundColor: "#000000",
+    title: "Debug Console",
+    show: false,
+    webPreferences: { nodeIntegration: true, contextIsolation: false }
+  });
+  debugConsoleWin.setMenuBarVisibility(false);
+  debugConsoleWin.loadFile("debug_console.html");
+  debugConsoleWin.once("ready-to-show", () => debugConsoleWin.show());
+  debugConsoleWin.on("closed", () => { debugConsoleWin = null; });
+}
+
+// Forward a request/response payload to the Debug Console window if it is open.
+// kind: "request" | "response". body may be a string or a JSON-serialisable value.
+function logToDebugConsole(kind, title, body) {
+  if (!debugConsoleWin || debugConsoleWin.isDestroyed()) return;
+  try {
+    debugConsoleWin.webContents.send("debug-log", {
+      kind,
+      title,
+      body,
+      timestamp: new Date().toLocaleTimeString()
+    });
+  } catch {
+    // best-effort — never break the request on a console failure
+  }
+}
+
 // Build the dynamic "Open Windows" section for the Window menu: one item per open
 // chat window, labeled "<name> (<tabCount>)". Selecting an item brings that window
 // to the front. Returns [] when there are no chat windows.
@@ -460,6 +577,11 @@ function buildMenu() {
           label: "Toggle Developer Tools",
           accelerator: isMac ? "Cmd+Option+I" : "Ctrl+Shift+I",
           click: () => BrowserWindow.getFocusedWindow()?.webContents.toggleDevTools()
+        },
+        { type: "separator" },
+        {
+          label: "Debug Console",
+          click: openDebugConsole
         },
         ...(isMac ? [
           { type: "separator" },
@@ -1153,6 +1275,7 @@ ipcMain.on("cancel-stream", (_event, sid) => {
   if (activeAborts[sid]) {
     activeAborts[sid].abort();
     delete activeAborts[sid];
+    logToDebugConsole("error", "CANCELLED", "Cancelled by user");
   }
 });
 
@@ -1518,6 +1641,7 @@ async function handleChatStream(event, { messages, vendor, model, agentMode, sid
       return;
     } else {
       event.sender.send("stream-error", sid, err.message);
+      logToDebugConsole("response", "ERROR FROM LLM", err.message);
     }
   } finally {
     delete activeAborts[sid];
@@ -1668,7 +1792,25 @@ ipcMain.handle("save-temp-image", (_event, { base64, mediaType }) => {
   return tempPath;
 });
 
-ipcMain.handle("chat-with-image", async (_event, { tempPath, mediaType, text, vendor: vendorOverride, model: modelOverride }) => {
+ipcMain.handle("chat-with-image", async (_event, args) => {
+  const settingsForLog = load();
+  logToDebugConsole("request", "IMAGE ANALYSIS REQUEST", {
+    vendor: args.vendor || settingsForLog.vendor,
+    model: args.model || settingsForLog.model,
+    text: args.text || "What is in this image?",
+    image: `(${args.mediaType || "image"} attachment)`
+  });
+  try {
+    const result = await chatWithImage(args);
+    logToDebugConsole("response", "IMAGE ANALYSIS RESPONSE", result);
+    return result;
+  } catch (err) {
+    logToDebugConsole("response", "ERROR FROM LLM", err.message);
+    throw err;
+  }
+});
+
+async function chatWithImage({ tempPath, mediaType, text, vendor: vendorOverride, model: modelOverride }) {
   checkMessageNag();
   const settings = load();
   const vendor = vendorOverride || settings.vendor;
@@ -1738,7 +1880,7 @@ ipcMain.handle("chat-with-image", async (_event, { tempPath, mediaType, text, ve
     ]}]
   });
   return res.choices[0].message.content;
-});
+}
 
 ipcMain.handle("generate-image", async (_event, { promptText, vendor, sourceImageBase64, imageModel }) => {
   const { apiKeys } = load();
@@ -2248,7 +2390,7 @@ app.whenReady().then(() => {
   app.on("browser-window-created", (_e, win) => {
     win.on("close", (e) => {
       if (isQuitting) return;
-      if (["settings", "about", "splash", "license", "generic-config-editor"].some(p => win.webContents.getURL().includes(p))) return;
+      if (["settings", "about", "splash", "license", "generic-config-editor", "debug_console"].some(p => win.webContents.getURL().includes(p))) return;
       if (windowsAwaitingClose.has(win.id)) {
         windowsAwaitingClose.delete(win.id);
         return; // confirmed — allow close

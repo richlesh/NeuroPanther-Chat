@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Debug Console</title>
+  <style>
+    :root {
+      --bg: #000000;
+      --fg: #00ff00;
+      --fg-dim: #00a000;
+      --req: #39ff14;
+      --resp: #00e0ff;
+      --meta: #00a000;
+      --sep: #0a3a0a;
+      --err: #ff4d4d;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: "JetBrains Mono", "SF Mono", "Consolas", "Menlo", monospace;
+      font-size: 13px;
+    }
+    body { display: flex; flex-direction: column; }
+    #toolbar {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 10px;
+      background: #020602;
+      border-bottom: 1px solid var(--sep);
+      user-select: none;
+    }
+    #toolbar .title { color: var(--fg); font-weight: bold; letter-spacing: 1px; }
+    #toolbar .spacer { flex: 1 1 auto; }
+    #toolbar label { color: var(--fg-dim); display: flex; align-items: center; gap: 4px; cursor: pointer; }
+    #toolbar button {
+      background: #041004;
+      color: var(--fg);
+      border: 1px solid var(--fg-dim);
+      border-radius: 3px;
+      padding: 3px 10px;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    #toolbar button:hover { background: #072007; }
+    #log {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      padding: 8px 10px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .entry { margin: 0 0 14px 0; }
+    .entry .head {
+      display: flex;
+      gap: 8px;
+      align-items: baseline;
+      border-bottom: 1px dashed var(--sep);
+      padding-bottom: 2px;
+      margin-bottom: 4px;
+    }
+    .entry .arrow { font-weight: bold; }
+    .entry.request .arrow, .entry.request .label { color: var(--req); }
+    .entry.response .arrow, .entry.response .label { color: var(--resp); }
+    .entry.error .arrow, .entry.error .label { color: var(--err); }
+    .entry.error .body { color: var(--err); }
+    .entry .label { font-weight: bold; letter-spacing: 0.5px; }
+    .entry .ts { color: var(--meta); font-size: 11px; margin-left: auto; }
+    .entry .body { margin: 0; color: var(--fg); }
+    /* Inline collapsible for "content" field values: native <details>/<summary>
+       with a green triangle marker. Only the content value collapses; the rest
+       of the JSON structure stays fully visible. */
+    details.content-collapse {
+      display: inline;
+    }
+    details.content-collapse > summary {
+      cursor: pointer;
+      list-style: none;           /* hide default marker; we draw our own triangle */
+      display: inline;
+    }
+    details.content-collapse > summary::-webkit-details-marker { display: none; }
+    details.content-collapse > summary::before {
+      content: "▶ ";
+      color: var(--fg-dim);
+      font-size: 10px;
+    }
+    details.content-collapse[open] > summary::before { content: "▼ "; }
+    details.content-collapse[open] > summary .summary-preview { display: none; }
+    details.content-collapse > .full { display: none; }
+    details.content-collapse[open] > .full { display: inline; }
+    .empty { color: var(--fg-dim); font-style: italic; }
+    /* minimal JSON syntax tints */
+    .jkey { color: #7fffd4; }
+    .jstr { color: #c0ffc0; }
+    .jnum { color: #ffd27f; }
+    .jbool { color: #ff9bff; }
+    .jnull { color: #ff7b7b; }
+    #log::-webkit-scrollbar { width: 10px; }
+    #log::-webkit-scrollbar-thumb { background: #0a3a0a; border-radius: 5px; }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <span class="title">▸ DEBUG CONSOLE</span>
+    <span class="spacer"></span>
+    <label><input type="checkbox" id="autoscroll" checked> Autoscroll</label>
+    <button id="clear">Clear</button>
+  </div>
+  <div id="log"><div class="empty">Waiting for LLM traffic… Requests and responses will appear here.</div></div>
+
+  <script>
+    const { ipcRenderer } = require("electron");
+    const logEl = document.getElementById("log");
+    const autoscrollEl = document.getElementById("autoscroll");
+    let hasEntries = false;
+
+    document.getElementById("clear").addEventListener("click", () => {
+      logEl.innerHTML = '<div class="empty">Cleared.</div>';
+      hasEntries = false;
+    });
+
+    // Escape HTML to avoid injecting markup from payloads.
+    function esc(s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    // Build an inline collapsible (<details>) for a single string value, shown
+    // JSON-style as a quoted string. Collapsed: `"first line…"` + triangle.
+    // Expanded: the full quoted string. Only used for "content" field values.
+    function collapsibleString(str) {
+      const full = JSON.stringify(str);                 // quoted + escaped, single-token
+      const lines = String(str).split("\n");
+      const firstLine = lines[0];
+      const hasMore = lines.length > 1 || firstLine.length < String(str).length;
+      // Collapsed preview is the first line as a quoted string with trailing …
+      const preview = JSON.stringify(firstLine).replace(/"$/, "") + (hasMore ? "…\"" : "\"");
+      if (!hasMore) {
+        // Short single-line content — no need to collapse.
+        return '<span class="jstr">' + esc(full) + "</span>";
+      }
+      return '<details class="content-collapse">'
+        + '<summary><span class="jstr summary-preview">' + esc(preview) + "</span></summary>"
+        + '<span class="jstr full">' + esc(full) + "</span>"
+        + "</details>";
+    }
+
+    // Recursively serialize a JSON value to highlighted HTML that mirrors
+    // JSON.stringify(x, null, 2) formatting, EXCEPT that a string value whose
+    // key is "content" is rendered as an inline collapsible (first line + …).
+    function serializeJson(value, indent, keyName) {
+      const pad = "  ".repeat(indent);
+      const padIn = "  ".repeat(indent + 1);
+      if (value === null) return '<span class="jnull">null</span>';
+      const t = typeof value;
+      if (t === "number") return '<span class="jnum">' + esc(String(value)) + "</span>";
+      if (t === "boolean") return '<span class="jbool">' + esc(String(value)) + "</span>";
+      if (t === "string") {
+        if (keyName === "content") return collapsibleString(value);
+        return '<span class="jstr">' + esc(JSON.stringify(value)) + "</span>";
+      }
+      if (Array.isArray(value)) {
+        if (value.length === 0) return "[]";
+        const items = value.map(v => padIn + serializeJson(v, indent + 1, null));
+        return "[\n" + items.join(",\n") + "\n" + pad + "]";
+      }
+      if (t === "object") {
+        const keys = Object.keys(value);
+        if (keys.length === 0) return "{}";
+        const items = keys.map(k =>
+          padIn + '<span class="jkey">' + esc(JSON.stringify(k)) + '</span>: '
+          + serializeJson(value[k], indent + 1, k)
+        );
+        return "{\n" + items.join(",\n") + "\n" + pad + "}";
+      }
+      return esc(String(value));
+    }
+
+    // Render an arbitrary body to HTML. Objects/JSON strings use the
+    // content-aware serializer; a plain-text body (not JSON) is treated as the
+    // content itself and rendered as a collapsible string.
+    function renderBody(body) {
+      if (body == null) return esc("(empty)");
+      if (typeof body === "object") {
+        try { return serializeJson(body, 0, null); }
+        catch { return esc(String(body)); }
+      }
+      const str = String(body);
+      const trimmed = str.trim();
+      if (trimmed && (trimmed[0] === "{" || trimmed[0] === "[")) {
+        try { return serializeJson(JSON.parse(trimmed), 0, null); }
+        catch { /* not valid JSON — fall through */ }
+      }
+      // Plain-text body IS the content — make it collapsible.
+      return collapsibleString(str);
+    }
+
+    function addEntry({ kind, title, body, timestamp }) {
+      if (!hasEntries) { logEl.innerHTML = ""; hasEntries = true; }
+      const entry = document.createElement("div");
+      const dir = kind === "response" ? "response" : (kind === "error" ? "error" : "request");
+      entry.className = "entry " + dir;
+
+      const head = document.createElement("div");
+      head.className = "head";
+      const arrow = document.createElement("span");
+      arrow.className = "arrow";
+      arrow.textContent = dir === "error" ? "✕" : (dir === "response" ? "◀" : "▶");
+      const label = document.createElement("span");
+      label.className = "label";
+      label.textContent = title || (dir === "response" ? "RESPONSE FROM LLM" : (dir === "error" ? "ERROR" : "REQUEST TO LLM"));
+      const ts = document.createElement("span");
+      ts.className = "ts";
+      ts.textContent = timestamp || new Date().toLocaleTimeString();
+      head.append(arrow, label, ts);
+
+      // Body renders fully; only "content" field values are collapsible.
+      const bodyEl = document.createElement("div");
+      bodyEl.className = "body";
+      bodyEl.innerHTML = renderBody(body);
+
+      entry.append(head, bodyEl);
+      logEl.appendChild(entry);
+
+      if (autoscrollEl.checked) logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    ipcRenderer.on("debug-log", (_e, payload) => {
+      try { addEntry(payload || {}); } catch { /* never break the console */ }
+    });
+  </script>
+</body>
+</html>

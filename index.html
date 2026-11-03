@@ -2031,7 +2031,7 @@
               const today = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
               const todayLine = `Today is ${new Date().toUTCString()}.`;
               const langInstruction = tab.translateMode ? `IMPORTANT: Always respond in ${tab.toLang}, regardless of the language the user writes in.\n\n` : "";
-              const agentInstruction = `You are a helpful AI assistant with access to tools. Today's date is ${today}. Use tools as needed to answer the user's request.`;
+              const agentInstruction = `You are a helpful AI assistant with access to tools. Today's date is ${today}. Use tools as needed to answer the user's request. The file tools (read_file, write_file, list_directory, search_files) operate only on files in the local working directory; do not use them for general knowledge, web, or research questions — use web_search for those. Do not call a tool unless it is clearly relevant to the request.`;
               const sysContent = `${langInstruction}${agentInstruction}${baseSystemPrompt ? "\n\n" + baseSystemPrompt : ""}\n\n${todayLine}`;
               if (!tab.history.length || tab.history[0].role !== "system") {
                 tab.history.unshift({ role: "system", content: sysContent });
@@ -2091,7 +2091,7 @@
         if (tab.agentMode) {
           const today = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
           const langInstruction = tab.translateMode ? `IMPORTANT: Always respond in ${tab.toLang}, regardless of the language the user writes in.\n\n` : "";
-          const agentInstruction = `You are a helpful AI assistant with access to tools. Today's date is ${today}. Use tools as needed to answer the user's request.`;
+          const agentInstruction = `You are a helpful AI assistant with access to tools. Today's date is ${today}. Use tools as needed to answer the user's request. The file tools (read_file, write_file, list_directory, search_files) operate only on files in the local working directory; do not use them for general knowledge, web, or research questions — use web_search for those. Do not call a tool unless it is clearly relevant to the request.`;
           const sysContent = `${langInstruction}${agentInstruction}${baseSystemPrompt ? "\n\n" + baseSystemPrompt : ""}`;
           if (!tab.history.length || tab.history[0].role !== "system") {
             tab.history.unshift({ role: "system", content: sysContent });
@@ -2659,6 +2659,14 @@
       let currentEl = thinkingEl;
       addAgentActivity(tabId, "Agent started", `${vendor} / ${model}`);
 
+      // Per-run web_search throttling: de-duplicate repeated queries and cap the
+      // total number of searches so a model that keeps re-searching the same
+      // thing can't spin for dozens of turns. Cache maps normalized query -> result.
+      const MAX_WEB_SEARCHES = 8;
+      const webSearchCache = new Map();
+      let webSearchCount = 0;
+      const normalizeQuery = q => String(q || "").toLowerCase().replace(/\s+/g, " ").trim();
+
       try {
       while (turns++ < MAX_TURNS) {
         addAgentActivity(tabId, `Agent turn ${turns}`, "Waiting for model response…");
@@ -2722,17 +2730,43 @@
 
         // show approval cards and collect results
         const toolResults = [];
-        // hide the thinking element before showing approval cards unless it contains streamed text/thinking
-        if (currentEl.classList.contains("thinking-indicator") || !currentEl.textContent.trim()) currentEl.style.display = "none";
+        // Remove the thinking element before showing approval cards unless it
+        // contains streamed text/thinking. Removing (rather than hiding) avoids
+        // a growing stack of hidden "Thinking…" bubbles that flash on each turn.
+        if (currentEl.classList.contains("thinking-indicator") || !currentEl.textContent.trim()) {
+          currentEl.remove();
+        }
         for (const tc of toolCalls) {
           const approved = tab.alwaysAllowTools?.has(tc.name) ? true : await showToolApproval(tab, tabId, tc);
           let result;
           if (approved) {
             addAgentActivity(tabId, `Running tool: ${tc.name}`, summarizeForActivity(tc.args, 800));
-            const { ok, result: r } = await ipcRenderer.invoke("agent-execute-tool", { tool: tc.name, args: tc.args });
-            result = ok ? r : `Error: ${r}`;
-            addAgentActivity(tabId, `Tool ${ok ? "completed" : "failed"}: ${tc.name}`, summarizeForActivity(result), ok ? "" : "error");
-            showToolResult(tab, tabId, tc, result);
+            // Throttle web_search: return a cached result for repeated queries and
+            // refuse once the per-run cap is reached, instead of hitting the API again.
+            if (tc.name === "web_search") {
+              const key = normalizeQuery(tc.args?.query);
+              if (webSearchCache.has(key)) {
+                result = `[Duplicate search skipped — "${tc.args?.query}" was already run this turn. Previous results:]\n\n` + webSearchCache.get(key);
+                addAgentActivity(tabId, "Web search skipped (duplicate)", tc.args?.query || "");
+                showToolResult(tab, tabId, tc, result);
+              } else if (webSearchCount >= MAX_WEB_SEARCHES) {
+                result = `[Web search limit reached: a maximum of ${MAX_WEB_SEARCHES} web searches are allowed per request. Answer using the information already gathered, and tell the user if it is insufficient.]`;
+                addAgentActivity(tabId, "Web search blocked (limit reached)", tc.args?.query || "", "error");
+                showToolResult(tab, tabId, tc, result);
+              } else {
+                webSearchCount++;
+                const { ok, result: r } = await ipcRenderer.invoke("agent-execute-tool", { tool: tc.name, args: tc.args });
+                result = ok ? r : `Error: ${r}`;
+                if (ok) webSearchCache.set(key, r);
+                addAgentActivity(tabId, `Tool ${ok ? "completed" : "failed"}: ${tc.name}`, summarizeForActivity(result), ok ? "" : "error");
+                showToolResult(tab, tabId, tc, result);
+              }
+            } else {
+              const { ok, result: r } = await ipcRenderer.invoke("agent-execute-tool", { tool: tc.name, args: tc.args });
+              result = ok ? r : `Error: ${r}`;
+              addAgentActivity(tabId, `Tool ${ok ? "completed" : "failed"}: ${tc.name}`, summarizeForActivity(result), ok ? "" : "error");
+              showToolResult(tab, tabId, tc, result);
+            }
           } else {
             result = "User denied this tool call.";
             addAgentActivity(tabId, `Tool denied: ${tc.name}`);
@@ -2759,8 +2793,12 @@
       }
       // clean up any dangling thinking indicator if loop exited without a final response
       if (turns > MAX_TURNS) addAgentActivity(tabId, "Agent stopped", `Reached maximum turn limit (${MAX_TURNS}).`, "error");
-      if (currentEl.classList.contains("thinking-indicator")) currentEl.style.display = "none";
+      if (currentEl.classList.contains("thinking-indicator")) currentEl.remove();
       } catch (err) {
+        // currentEl may have been removed from the DOM between turns (empty
+        // thinking bubbles are removed, not hidden). Re-attach it so the error
+        // is visible.
+        if (!currentEl.isConnected) tabs[tabId].container.appendChild(currentEl);
         currentEl.style.display = "";
         currentEl.classList.remove("thinking-indicator");
         currentEl.className = "msg error";
@@ -2784,25 +2822,38 @@
     }
 
     function showToolResult(tab, tabId, tc, result) {
-      const card = tabs[tabId].container.querySelector(".tool-card:not(.executed):not(.denied)");
-      if (card) {
-        card.classList.add("executed");
-        card.querySelector(".tool-card-header").textContent = `✓ ${tc.name}`;
-        const res = document.createElement("div");
-        res.className = "tool-card-result";
-        res.textContent = result.slice(0, 2000) + (result.length > 2000 ? "…" : "");
-        card.appendChild(res);
-        if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight;
+      // Reuse the pending approval card if there is one; otherwise (auto-approved
+      // tools, e.g. "Always allow") create a fresh executed card so every tool
+      // call shows its result — not just the first.
+      let card = tabs[tabId].container.querySelector(".tool-card:not(.executed):not(.denied)");
+      if (!card) {
+        card = document.createElement("div");
+        card.className = "tool-card";
+        const argsStr = JSON.stringify(tc.args, null, 2);
+        card.innerHTML = `<div class="tool-card-header"></div><div class="tool-card-args">${argsStr}</div>`;
+        tabs[tabId].container.appendChild(card);
       }
+      card.classList.add("executed");
+      card.querySelector(".tool-card-header").textContent = `✓ ${tc.name}`;
+      const res = document.createElement("div");
+      res.className = "tool-card-result";
+      res.textContent = result.slice(0, 2000) + (result.length > 2000 ? "…" : "");
+      card.appendChild(res);
+      if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight;
     }
 
     function showToolDenied(tab, tabId, tc) {
-      const card = tabs[tabId].container.querySelector(".tool-card:not(.executed):not(.denied)");
-      if (card) {
-        card.classList.add("denied");
-        card.querySelector(".tool-card-header").textContent = `✗ ${tc.name} (denied)`;
-        if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight;
+      let card = tabs[tabId].container.querySelector(".tool-card:not(.executed):not(.denied)");
+      if (!card) {
+        card = document.createElement("div");
+        card.className = "tool-card";
+        const argsStr = JSON.stringify(tc.args, null, 2);
+        card.innerHTML = `<div class="tool-card-header"></div><div class="tool-card-args">${argsStr}</div>`;
+        tabs[tabId].container.appendChild(card);
       }
+      card.classList.add("denied");
+      card.querySelector(".tool-card-header").textContent = `✗ ${tc.name} (denied)`;
+      if (tabId === activeTabId) chatEl.scrollTop = chatEl.scrollHeight;
     }
 
     function stripThinking(text) {
